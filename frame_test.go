@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math"
 	"runtime"
 	"testing"
 )
@@ -211,5 +212,21 @@ func TestReadHeaderStopsBeforePayload(t *testing.T) {
 	}
 	if r.Len() != 300 {
 		t.Errorf("readHeader left %d bytes, want the 300-byte payload", r.Len())
+	}
+}
+
+// A caller's limit never exceeds what a slice can hold, so on 32-bit
+// platforms an announced length beyond math.MaxInt is rejected rather than
+// allocated. GOARCH=386 exercises this.
+func TestReadFrameLimitFitsInSlice(t *testing.T) {
+	in := cat([]byte{0x82, 0x7f}, len64(1<<40))
+	fr := &frameReader{r: bytes.NewReader(in), maxPayload: math.MaxInt64}
+	if got := fr.limit(); got > math.MaxInt {
+		t.Errorf("limit() = %d, above math.MaxInt", got)
+	}
+	if math.MaxInt < 1<<40 {
+		if _, _, err := fr.readFrame(); !errors.Is(err, errFrameTooLarge) {
+			t.Errorf("readFrame: %v, want errFrameTooLarge", err)
+		}
 	}
 }

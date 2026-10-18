@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 )
 
 // opcode is the 4-bit frame opcode (RFC 6455 §5.2, §11.8).
@@ -184,9 +185,11 @@ func (fr *frameReader) readFrame() (frameHeader, []byte, error) {
 	return h, payload, nil
 }
 
+// limit is the effective payload limit; it never exceeds what a slice can
+// hold, which matters on 32-bit platforms.
 func (fr *frameReader) limit() int64 {
 	if fr.maxPayload > 0 {
-		return fr.maxPayload
+		return min(fr.maxPayload, math.MaxInt)
 	}
 	return defaultMaxFramePayload
 }
