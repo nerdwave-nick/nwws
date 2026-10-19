@@ -28,9 +28,12 @@ go get github.com/nerdwave-nick/nwws
 
 ### Connection behaviour
 
-- **Single writer.** One goroutine per connection writes all frames: data,
-  pongs and close. Messages queued while a write is in progress go out
-  together in the next network write.
+- **Single writer.** Frames are written one at a time and never
+  interleave. A `Write` on an idle connection writes its frame itself, in
+  the calling goroutine. While a write is in progress, other frames queue:
+  the connection's writer goroutine sends them together in the next
+  network write, pending pongs first and a close frame last. Pings and
+  close frames always go through the queue.
 - **Fragmented messages** are reassembled. Control frames between fragments
   are handled.
 - **Pings** are answered with a pong that carries the same payload.

@@ -10,6 +10,7 @@ import (
 	"os"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -132,24 +133,56 @@ func TestPingsThroughSingleWriter(t *testing.T) {
 		peer.expectPing()
 	})
 
+	// A Write on an idle connection writes in the calling goroutine, so
+	// with a single P the liveness goroutine may not run during the burst.
+	// After their burst, the writers send empty messages and yield until the
+	// peer has seen a ping between the frames.
 	t.Run("concurrent writers", func(t *testing.T) {
 		c, peer := startConn(t, true, liveConfig(time.Millisecond, testTimeout))
 		const writers, each = 8, 50
 		var wg sync.WaitGroup
+		var sent atomic.Int64
+		var pinged atomic.Bool
+		stop := make(chan struct{})
 		for w := range writers {
 			wg.Go(func() {
-				for i := range each {
-					mustWrite(t, c, MessageBinary, fmt.Appendf(nil, "%d:%d:%s", w, i, bytes.Repeat([]byte{'x'}, 100*i)))
+				for i := 0; ; i++ {
+					select {
+					case <-stop:
+						return
+					default:
+					}
+					if i >= each && pinged.Load() {
+						<-stop
+						return
+					}
+					size := 0
+					if i < each {
+						size = 100 * i
+					}
+					mustWrite(t, c, MessageBinary, fmt.Appendf(nil, "%d:%d:%s", w, i, bytes.Repeat([]byte{'x'}, size)))
+					sent.Add(1)
+					if i >= each {
+						runtime.Gosched()
+					}
 				}
 			})
 		}
 		next := make([]int, writers)
-		pings := 0
-		for data := 0; data < writers*each; {
+		pings, data := 0, 0
+		stopped := false
+		for !stopped || int64(data) < sent.Load() {
+			if !stopped && pings > 0 && data >= writers*each {
+				close(stop)
+				wg.Wait() // each writer has at most one message in flight, which the socket buffers
+				stopped = true
+				continue
+			}
 			h, b := peer.recv()
 			switch h.opcode {
 			case opPing:
 				pings++
+				pinged.Store(true)
 				peer.send(true, opPong, b)
 			case opBinary:
 				var w, i int
@@ -161,10 +194,6 @@ func TestPingsThroughSingleWriter(t *testing.T) {
 			default:
 				t.Fatalf("unexpected opcode %d", h.opcode)
 			}
-		}
-		wg.Wait()
-		if pings == 0 {
-			t.Fatal("no pings between the data frames")
 		}
 	})
 }

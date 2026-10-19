@@ -47,9 +47,10 @@ var ErrClosed = errors.New("nwws: connection closed")
 // full, it reads no further frames until Read makes room, so keep calling
 // Read for as long as the connection is in use.
 //
-// Another goroutine writes every frame, so concurrent writers never
-// interleave. Messages queued while a write is in progress are sent
-// together in the next one.
+// Frames are written one at a time, so concurrent writers never
+// interleave. A Write on an idle connection writes its frame itself;
+// messages queued while a write is in progress are sent together in the
+// next one, by another goroutine of the connection.
 type Conn struct {
 	nc          net.Conn
 	server      bool
@@ -62,7 +63,7 @@ type Conn struct {
 	closeRcvd chan struct{} // closed when the peer's close frame arrives
 	readDone  chan struct{}
 
-	// Write side, owned by writeLoop.
+	// Write side, owned by writeLoop or a direct Write; see writing.
 	fw        frameWriter
 	deflate   *deflater // compresses messages; nil without compression
 	bw        *bufio.Writer
@@ -74,6 +75,7 @@ type Conn struct {
 	queue   []*writeReq // data and close frames in order, guarded by wmu
 	pongs   []*writeReq // pongs to send first, oldest first, guarded by wmu
 	wclosed bool        // no more frames are accepted, guarded by wmu
+	writing bool        // writeLoop or a Write owns the write side, guarded by wmu
 
 	// Complete messages read ahead for Read, guarded by rmu.
 	rmu        sync.Mutex
