@@ -16,7 +16,9 @@ const (
 
 // ErrLivenessTimeout is wrapped by the error of a connection closed
 // because the peer did not answer a ping in time. Read returns it inside a
-// *[CloseError] with StatusAbnormalClosure.
+// *[CloseError] with StatusAbnormalClosure. The peer is sent a close frame
+// with StatusGoingAway and the reason "liveness timeout", if it can be
+// written within a second.
 var ErrLivenessTimeout = errors.New("nwws: no answer to a ping within the pong timeout")
 
 // RTT returns the round-trip time last measured from a ping to its pong,
@@ -32,8 +34,8 @@ func (c *Conn) RTT() time.Duration {
 }
 
 // liveness pings the peer every interval through the write goroutine and
-// closes the connection when, after a ping, nothing arrives from the peer
-// within the timeout. Any data received proves the peer alive, not only
+// closes the connection (see timeOut) when, after a ping, nothing arrives
+// from the peer within the timeout. Any data received proves the peer alive, not only
 // the pong: a pong may wait behind a large frame on a slow link.
 //
 // While a complete message waits for Read, the read goroutine reads no
@@ -96,7 +98,7 @@ func (l *liveness) run() {
 		}
 		now := time.Now()
 		if l.expired(now) {
-			l.c.closeNow(&CloseError{Code: StatusAbnormalClosure, err: ErrLivenessTimeout})
+			l.timeOut()
 			return
 		}
 		if !now.Before(nextPing) {

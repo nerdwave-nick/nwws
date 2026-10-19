@@ -28,8 +28,10 @@ type ConnOptions struct {
 	PingInterval time.Duration
 
 	// PongTimeout is how long the connection waits, after a ping, for the
-	// peer to send a pong or any other data. Then it closes the
-	// connection, and Read returns an error matching ErrLivenessTimeout.
+	// peer to send a pong or any other data. Then it sends a close frame
+	// with StatusGoingAway (1001), without waiting for the peer's, closes
+	// the connection, and Read returns an error matching
+	// ErrLivenessTimeout.
 	// The wait is suspended while a message waits for Read. Zero or less
 	// means DefaultPongTimeout.
 	PongTimeout time.Duration
