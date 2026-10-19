@@ -2,8 +2,10 @@ package nwws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
+	"time"
 )
 
 // Regression tests for behaviour the Autobahn test suite checks.
@@ -59,4 +61,53 @@ func TestPendingPongsBounded(t *testing.T) {
 	for i := pings - maxPendingPongs; i < pings; i++ {
 		peer.expectFrame(opPong, fmt.Appendf(nil, "%d", i))
 	}
+}
+
+// Autobahn 2.5 and 6.17.4 (client side): an application that calls Close
+// as soon as Read reports a violation must not replace the failure's close
+// code. The failure's close frame is queued before Read learns of it.
+func TestViolationCloseCodeWinsOverClose(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  []byte
+		code StatusCode
+	}{
+		// A ping with a 126-byte payload (RFC 6455 §5.5).
+		{"control too long", append([]byte{0x80 | byte(opPing), 126, 0, 126}, make([]byte, 126)...), StatusProtocolError},
+		// A text frame that is not UTF-8 (RFC 6455 §8.1).
+		{"invalid UTF-8", []byte{0x80 | byte(opText), 5, 0xf8, 0x80, 0x80, 0x80, 0xaf}, StatusInvalidFramePayloadData},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for range 200 {
+				c, peer := startConn(t, false, testConfig())
+				peer.sendRaw(tc.raw)
+				_, _, err := readMsg(t, c)
+				assertProtocolError(t, err, tc.code)
+				closed := make(chan error, 1)
+				go func() { closed <- c.Close(StatusNormalClosure, "") }()
+				peer.expectClose(tc.code)
+				_ = peer.nc.Close()
+				<-closed
+			}
+		})
+	}
+}
+
+// The failure's close frame is queued before Read reports the violation,
+// so no Close that follows Read can get ahead of it: while the write queue
+// is locked, Read cannot learn of the violation yet.
+func TestViolationQueuedBeforeRead(t *testing.T) {
+	c, peer := startConn(t, false, testConfig())
+	c.wmu.Lock()
+	peer.sendRaw([]byte{0x80 | byte(opText), 1, 0xff})
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	_, _, err := c.Read(ctx)
+	cancel()
+	c.wmu.Unlock()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Read = %v while the close frame could not be queued, want DeadlineExceeded", err)
+	}
+	_, _, err = readMsg(t, c)
+	assertProtocolError(t, err, StatusInvalidFramePayloadData)
+	peer.expectClose(StatusInvalidFramePayloadData)
 }

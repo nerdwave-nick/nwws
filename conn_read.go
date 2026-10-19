@@ -71,11 +71,9 @@ func (c *Conn) readLoop() {
 		err = &CloseError{Code: StatusAbnormalClosure, err: err}
 	}
 	c.setErr(err)
-	if peerClosed {
-		close(c.closeRcvd)
-	}
-	close(c.msgs)
-
+	// Our close frame is queued before Read learns why the connection
+	// ended, so a Close called after Read cannot replace its code. Queueing
+	// fails when our close frame is already queued.
 	switch {
 	case peerClosed:
 		// The peer started the closing handshake or answered ours.
@@ -83,13 +81,20 @@ func (c *Conn) readLoop() {
 		if ce.Code != StatusNoStatusRcvd {
 			echo = closePayload(ce.Code, "")
 		}
-		_, _ = c.queueClose(echo) // fails when our close frame is already queued
+		_, _ = c.queueClose(echo)
+		close(c.closeRcvd)
+	case failed:
+		_, _ = c.queueClose(closePayload(pe.code, ""))
+	}
+	close(c.msgs)
+
+	switch {
+	case peerClosed:
 		c.awaitCloseSent()
 		if !c.server {
 			c.awaitEOF() // RFC 6455 §7.1.1: the server closes TCP first
 		}
 	case failed:
-		_, _ = c.queueClose(closePayload(pe.code, ""))
 		if c.awaitCloseSent() {
 			c.drain()
 		}
