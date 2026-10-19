@@ -46,7 +46,9 @@ sends messages of up to 16 MiB.
 
 ## NON-STRICT cases
 
-The same cases are NON-STRICT on the server and the client side.
+The same cases are NON-STRICT on the server and the client side. The
+first group depends on timing, so some of its cases may come out `OK` in a
+given run.
 
 | Cases | Reason |
 | --- | --- |
