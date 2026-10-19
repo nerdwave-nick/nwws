@@ -380,9 +380,10 @@ func fillPool(n, count int) {
 // flight: the messages queued within the budget, one being read and one
 // being copied. Warming up by reading is not enough, because read-ahead
 // may run deeper later than it did while warming up, so the test fills the
-// pool, and the storage of sync.Pool itself, to that bound first. It reads many more messages than that, so a
-// buffer that does not go back to the pool still fails it. A garbage
-// collection empties sync.Pool, so collection is off while the test runs.
+// pool, and the storage of sync.Pool itself, to that bound first. It reads
+// many more messages than that, so a buffer that does not go back to the
+// pool still fails it. A garbage collection empties sync.Pool, so
+// collection is off while the test runs.
 // The connection runs over net.Pipe, which makes no system calls: over
 // TCP, a system call that blocks long enough makes the runtime start
 // another thread, which allocates.
