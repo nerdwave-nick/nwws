@@ -9,6 +9,10 @@ import (
 // options leave ReadLimit unset.
 const DefaultReadLimit = 1 << 20
 
+// DefaultReadBuffer is the read-ahead budget, in bytes, of a connection
+// whose options leave ReadBuffer unset.
+const DefaultReadBuffer = 1 << 20
+
 // defaultCloseTimeout bounds each wait of the closing handshake.
 const defaultCloseTimeout = 5 * time.Second
 
@@ -19,8 +23,7 @@ type ConnOptions struct {
 	// connection reads. A larger message closes the connection with
 	// StatusMessageTooBig (1009). The limit also bounds the memory a
 	// message being read takes. For a compressed message, it applies to
-	// the compressed and to the decompressed size. Zero or less means
-	// DefaultReadLimit.
+	// the decompressed size only. Zero or less means DefaultReadLimit.
 	ReadLimit int64
 
 	// PingInterval is how often the connection pings the peer. Zero or
@@ -28,11 +31,25 @@ type ConnOptions struct {
 	PingInterval time.Duration
 
 	// PongTimeout is how long the connection waits, after a ping, for the
-	// peer to send a pong or any other data. Then it closes the
-	// connection, and Read returns an error matching ErrLivenessTimeout.
-	// The wait is suspended while a message waits for Read. Zero or less
+	// peer to send a pong or any other data. Then it sends a close frame
+	// with StatusGoingAway (1001), without waiting for the peer's, closes
+	// the connection, and Read returns an error matching
+	// ErrLivenessTimeout.
+	// The wait is suspended while the connection has stopped reading
+	// until Read makes room in the full ReadBuffer budget. Zero or less
 	// means DefaultPongTimeout.
 	PongTimeout time.Duration
+
+	// ReadBuffer is the read-ahead budget, in bytes. The connection keeps
+	// reading frames, and so answering pings, while complete messages wait
+	// for Read, as long as they take less memory than ReadBuffer. Each
+	// message counts its size plus a few dozen bytes of bookkeeping. A
+	// message is always queued when none waits, even if it is larger. Once
+	// the budget is full, the connection stops reading until Read makes
+	// room, and TCP pushes back on the peer. Memory for reading is bounded
+	// by ReadBuffer plus one message being read. Zero or less means
+	// DefaultReadBuffer.
+	ReadBuffer int64
 
 	// DisableLiveness turns pings and the pong timeout off. Pings from the
 	// peer are still answered.
@@ -46,6 +63,7 @@ type ConnOptions struct {
 // connConfig is the effective configuration of a connection.
 type connConfig struct {
 	readLimit    int64
+	readBuffer   int // read-ahead budget in bytes; zero means DefaultReadBuffer
 	closeTimeout time.Duration
 	pingInterval time.Duration // zero when liveness is off
 	pongTimeout  time.Duration
@@ -55,6 +73,7 @@ type connConfig struct {
 func (o *ConnOptions) config() connConfig {
 	cfg := connConfig{
 		readLimit:    DefaultReadLimit,
+		readBuffer:   DefaultReadBuffer,
 		closeTimeout: defaultCloseTimeout,
 		pingInterval: DefaultPingInterval,
 		pongTimeout:  DefaultPongTimeout,
@@ -65,6 +84,9 @@ func (o *ConnOptions) config() connConfig {
 	if o.ReadLimit > 0 {
 		// A message must fit in a slice, which matters on 32-bit platforms.
 		cfg.readLimit = min(o.ReadLimit, math.MaxInt)
+	}
+	if o.ReadBuffer > 0 {
+		cfg.readBuffer = int(min(o.ReadBuffer, math.MaxInt))
 	}
 	if o.PingInterval > 0 {
 		cfg.pingInterval = o.PingInterval

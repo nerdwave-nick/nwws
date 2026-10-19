@@ -1,5 +1,10 @@
 package nwws
 
+import (
+	"compress/flate"
+	"fmt"
+)
+
 // DefaultCompressionThreshold is the compression threshold, in bytes, of
 // CompressionOptions that leave Threshold unset.
 const DefaultCompressionThreshold = 128
@@ -10,7 +15,7 @@ const maxWindowBits = 15
 // CompressionOptions enables the permessage-deflate extension (RFC 7692).
 // It is negotiated only when both sides enable it; otherwise the connection
 // is uncompressed. The zero value enables compression with context takeover
-// in both directions and the default threshold.
+// in both directions, the default threshold and level flate.BestSpeed.
 type CompressionOptions struct {
 	// Threshold is the size, in bytes, from which a message is sent
 	// compressed. Shorter messages are sent as they are. Zero or less means
@@ -28,12 +33,35 @@ type CompressionOptions struct {
 	// context (client_no_context_takeover). A client with it set never uses
 	// context takeover; a server with it set asks the client not to.
 	ClientNoContextTakeover bool
+
+	// Level is the compress/flate compression level: flate.HuffmanOnly or
+	// 1 (flate.BestSpeed) to 9 (flate.BestCompression). Zero means
+	// flate.BestSpeed. Accept and Dial refuse any other value with an
+	// error. If the peer limits the window below 15 bits, messages are
+	// Huffman-coded only, whatever the level.
+	Level int
+}
+
+// check reports an error for options that Accept and Dial refuse before
+// any upgrade or dial: a compression level out of range.
+func (o *ConnOptions) check() error {
+	if o == nil || o.Compression == nil {
+		return nil
+	}
+	switch l := o.Compression.Level; {
+	case l == 0, l == flate.HuffmanOnly, flate.BestSpeed <= l && l <= flate.BestCompression:
+		return nil
+	default:
+		return fmt.Errorf("nwws: compression level %d is not 0, flate.HuffmanOnly or 1 to 9", l)
+	}
 }
 
 // deflateConfig is the effective permessage-deflate configuration of a
 // connection, from the parameters both sides agreed on.
 type deflateConfig struct {
 	threshold int
+	// level is the compression level of a 15-bit window.
+	level int
 	// writeTakeover keeps the compression context between the messages
 	// this side sends.
 	writeTakeover bool
@@ -60,9 +88,12 @@ func (o *CompressionOptions) negotiated(extensions string, server bool) *deflate
 	if err != nil {
 		return nil
 	}
-	cfg := &deflateConfig{threshold: o.Threshold}
+	cfg := &deflateConfig{threshold: o.Threshold, level: o.Level}
 	if cfg.threshold <= 0 {
 		cfg.threshold = DefaultCompressionThreshold
+	}
+	if cfg.level == 0 {
+		cfg.level = flate.BestSpeed
 	}
 	if server {
 		cfg.writeTakeover = !p.serverNoContextTakeover
@@ -100,5 +131,11 @@ func (c *Conn) initCompression() {
 	}
 	c.fr.rsv, c.fw.rsv = rsv1Bit, rsv1Bit
 	c.inflate = &inflater{takeover: cfg.readTakeover}
+	c.inflate.src = frameSource{
+		r: c.fr.r.(flate.Reader), // newConn reads through a bufio.Reader
+		next: func() (frameHeader, error) {
+			return nextFragment(&c.fr, c.readControl)
+		},
+	}
 	c.deflate = &deflater{cfg: *cfg}
 }

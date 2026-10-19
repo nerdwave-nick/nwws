@@ -25,7 +25,9 @@ type DialOptions struct {
 	// TLSConfig configures wss connections. It is cloned, never modified.
 	// Set Certificates for client certificates (mutual TLS) and RootCAs for
 	// a private CA. ServerName defaults to the URL's host. If nil, the
-	// default configuration is used.
+	// default configuration is used. NextProtos is ignored: the client
+	// always offers ALPN "http/1.1" only, because the upgrade needs
+	// HTTP/1.1 and a server offered h2 might select it.
 	TLSConfig *tls.Config
 
 	// Header holds extra request headers, such as Origin or Authorization.
@@ -36,6 +38,15 @@ type DialOptions struct {
 	// Subprotocols lists the subprotocols to offer, most preferred first.
 	// The server may select one of them or none.
 	Subprotocols []string
+
+	// NetDialContext, if set, opens the connection the handshake runs on,
+	// in place of a net.Dialer. It is called with network "tcp" and the
+	// URL's host and port (80 for ws and 443 for wss by default), and may
+	// connect anywhere, for example to a Unix socket, through a SOCKS or
+	// HTTP CONNECT proxy of the caller's, or with a custom TCP keepalive.
+	// It receives Dial's context and should give up when it ends. For wss,
+	// TLS runs on top of the returned connection.
+	NetDialContext func(ctx context.Context, network, addr string) (net.Conn, error)
 
 	// ConnOptions configures the dialed connection.
 	ConnOptions
@@ -54,8 +65,7 @@ func dialHandshake(ctx context.Context, rawURL string, opts *DialOptions) (*hand
 	if err != nil {
 		return nil, nil, err
 	}
-	var d net.Dialer
-	conn, err := d.DialContext(ctx, "tcp", addr)
+	conn, err := opts.netDial(ctx, addr)
 	if err != nil {
 		return nil, nil, fmt.Errorf("nwws: dial %s: %w", addr, err)
 	}
@@ -101,6 +111,20 @@ func parseDialURL(rawURL string) (u *url.URL, addr string, useTLS bool, err erro
 		port = p
 	}
 	return u, net.JoinHostPort(u.Hostname(), port), useTLS, nil
+}
+
+// netDial opens the connection to addr with NetDialContext or, if that is
+// unset, a net.Dialer.
+func (o *DialOptions) netDial(ctx context.Context, addr string) (net.Conn, error) {
+	if o == nil || o.NetDialContext == nil {
+		var d net.Dialer
+		return d.DialContext(ctx, "tcp", addr)
+	}
+	conn, err := o.NetDialContext(ctx, "tcp", addr)
+	if err == nil && conn == nil {
+		err = errors.New("NetDialContext returned no connection")
+	}
+	return conn, err
 }
 
 func clientHandshake(ctx context.Context, conn net.Conn, u *url.URL, useTLS bool, opts *DialOptions) (*handshake, *http.Response, error) {
@@ -150,6 +174,8 @@ func (o *DialOptions) tlsConfig(host string) *tls.Config {
 	if cfg.ServerName == "" {
 		cfg.ServerName = host
 	}
+	// A new slice: the clone shares the caller's backing array.
+	cfg.NextProtos = []string{"http/1.1"}
 	return cfg
 }
 

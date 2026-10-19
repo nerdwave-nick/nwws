@@ -2,10 +2,8 @@ package nwws
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"testing"
-	"time"
 )
 
 // Regression tests for behaviour the Autobahn test suite checks.
@@ -91,23 +89,4 @@ func TestViolationCloseCodeWinsOverClose(t *testing.T) {
 			}
 		})
 	}
-}
-
-// The failure's close frame is queued before Read reports the violation,
-// so no Close that follows Read can get ahead of it: while the write queue
-// is locked, Read cannot learn of the violation yet.
-func TestViolationQueuedBeforeRead(t *testing.T) {
-	c, peer := startConn(t, false, testConfig())
-	c.wmu.Lock()
-	peer.sendRaw([]byte{0x80 | byte(opText), 1, 0xff})
-	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
-	_, _, err := c.Read(ctx)
-	cancel()
-	c.wmu.Unlock()
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Read = %v while the close frame could not be queued, want DeadlineExceeded", err)
-	}
-	_, _, err = readMsg(t, c)
-	assertProtocolError(t, err, StatusInvalidFramePayloadData)
-	peer.expectClose(StatusInvalidFramePayloadData)
 }

@@ -22,7 +22,7 @@ var syncTail = []byte{0x00, 0x00, 0xff, 0xff}
 // deflateOn is the configuration of a connection that negotiated
 // permessage-deflate with context takeover in both directions.
 func deflateOn() deflateConfig {
-	return deflateConfig{threshold: 64, writeTakeover: true, writeWindowBits: 15, readTakeover: true}
+	return deflateConfig{threshold: 64, level: flate.BestSpeed, writeTakeover: true, writeWindowBits: 15, readTakeover: true}
 }
 
 // startDeflateConn starts a connection with permessage-deflate as
@@ -141,7 +141,7 @@ func TestDeflateWrite(t *testing.T) {
 func TestDeflateRead(t *testing.T) {
 	for _, server := range []bool{true, false} {
 		t.Run(map[bool]string{true: "server", false: "client"}[server], func(t *testing.T) {
-			c, peer := startDeflateConn(t, server, deflateConfig{threshold: 64, writeWindowBits: 15})
+			c, peer := startDeflateConn(t, server, deflateConfig{threshold: 64, level: flate.BestSpeed, writeWindowBits: 15})
 			pc := newPeerCompressor(t, false)
 
 			msg := []byte(strings.Repeat("grüß dich, ", 50))
@@ -314,6 +314,8 @@ func TestDeflateCompressedBitErrors(t *testing.T) {
 // The read limit applies to the decompressed size, and decompression stops
 // once it is exceeded: a small compressed message that inflates to far more
 // than the limit closes the connection with 1009 without inflating it all.
+// TestDeflateReadLimitIncompressible covers messages whose compressed size
+// exceeds the limit.
 func TestDeflateReadLimit(t *testing.T) {
 	const limit = 64 << 10
 	pc := newPeerCompressor(t, false)
@@ -351,13 +353,6 @@ func TestDeflateReadLimit(t *testing.T) {
 		if n := after.TotalAlloc - before.TotalAlloc; n > 8<<20 {
 			t.Errorf("reading the bomb allocated %d bytes; want decompression to stop at the limit", n)
 		}
-	})
-	t.Run("compressed size over the limit", func(t *testing.T) {
-		c, peer := start(t)
-		peer.sendFrame(false, rsv1Bit, opBinary, make([]byte, limit/2))
-		peer.sendFrame(true, 0, opContinuation, make([]byte, limit/2+1))
-		_, _, err := readMsg(t, c)
-		assertProtocolError(t, err, StatusMessageTooBig)
 	})
 }
 

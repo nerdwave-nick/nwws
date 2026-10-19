@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"time"
 )
@@ -14,10 +15,12 @@ var (
 	errInvalidUTF8     = errors.New("nwws: text is not valid UTF-8")
 )
 
-// message is a complete data message.
+// message is a complete data message, or a violation by the peer that
+// Read reports in order, after the messages received before it.
 type message struct {
 	typ  MessageType
 	data []byte
+	fail *protocolError
 }
 
 // protocolError is a violation of RFC 6455 by the peer, for which the
@@ -45,16 +48,24 @@ func protocolErrorf(code StatusCode, format string, args ...any) *protocolError 
 // peer's close code and reason, a *CloseError with StatusAbnormalClosure
 // when the connection was lost without a close frame, or another error
 // when this side failed the connection.
+//
+// A protocol violation by the peer is reported in order, after the
+// messages received before it, and its close frame is queued before Read
+// returns, so it follows what the application wrote in reply to those
+// messages. If Read is not called within the close timeout, the connection
+// is failed anyway.
 func (c *Conn) Read(ctx context.Context) (MessageType, []byte, error) {
-	select {
-	case m, ok := <-c.msgs:
-		if !ok {
-			return 0, nil, c.endErr()
-		}
-		return m.typ, m.data, nil
-	case <-ctx.Done():
-		return 0, nil, ctx.Err()
+	m, err := c.next(ctx)
+	switch {
+	case err != nil:
+		return 0, nil, err
+	case m.fail != nil:
+		// Queue the failure's close frame before Read returns, so a
+		// Close called after Read cannot replace its code.
+		_, _ = c.queueClose(closePayload(m.fail.code, ""))
+		return 0, nil, m.fail
 	}
+	return m.typ, m.data, nil
 }
 
 // readLoop reads frames until the connection ends, records why so that
@@ -84,9 +95,10 @@ func (c *Conn) readLoop() {
 		_, _ = c.queueClose(echo)
 		close(c.closeRcvd)
 	case failed:
+		c.deliverFailure(pe)
 		_, _ = c.queueClose(closePayload(pe.code, ""))
 	}
-	close(c.msgs)
+	c.endMessages()
 
 	switch {
 	case peerClosed:
@@ -110,14 +122,18 @@ func (c *Conn) readMessages() error {
 		msg   []byte
 		typ   opcode
 		inMsg bool // a message has started and not finished
-		dfl   bool // the message is compressed (RFC 7692 §6)
 		text  utf8Validator
 		limit = c.cfg.readLimit
 	)
 	for {
 		room := limit - int64(len(msg))
 		// Control frames up to 125 bytes stay readable when room is less.
+		// The first frame of a message may be compressed, which limits only
+		// the decompressed size; the check below limits the others.
 		c.fr.maxPayload = max(room, maxControlPayload)
+		if !inMsg {
+			c.fr.maxPayload = math.MaxInt64
+		}
 		h, err := c.fr.readHeader()
 		if err != nil {
 			return frameReadError(err)
@@ -137,23 +153,30 @@ func (c *Conn) readMessages() error {
 			return protocolErrorf(StatusProtocolError, "continuation frame without a message to continue")
 		case h.opcode != opContinuation && inMsg:
 			return protocolErrorf(StatusProtocolError, "new message before the previous one finished")
+		case h.rsv&rsv1Bit != 0:
+			// The first frame of a compressed message (RFC 7692 §6.1):
+			// the message is decompressed as its frames arrive.
+			msg, err := c.inflate.read(h, h.opcode == opText, limit)
+			if err != nil {
+				return err
+			}
+			if !c.deliver(message{typ: MessageType(h.opcode), data: msg}) {
+				return net.ErrClosed
+			}
+			continue
 		case h.length > room:
 			return &protocolError{code: StatusMessageTooBig, err: fmt.Errorf("%w of %d bytes", errMessageTooLarge, limit)}
 		}
 		if !inMsg {
 			typ, inMsg, text = h.opcode, true, utf8Validator{}
-			dfl = h.rsv&rsv1Bit != 0
 		}
-		if msg, err = c.readPayload(msg, h, int(limit)); err != nil {
+		if typ == opText {
+			msg, err = c.readTextPayload(msg, h, int(limit), &text)
+		} else {
+			msg, err = c.readPayload(msg, h, int(limit))
+		}
+		if err != nil {
 			return err
-		}
-		if dfl {
-			if !h.fin {
-				continue // the compressed bytes are buffered in msg
-			}
-			if msg, err = c.inflate.message(msg, limit); err != nil {
-				return err
-			}
 		}
 		if typ == opText && !text.valid(msg, h.fin) {
 			return &protocolError{code: StatusInvalidFramePayloadData, err: errInvalidUTF8}
@@ -222,27 +245,6 @@ func (c *Conn) readControl(h frameHeader) error {
 		return parseClose(payload)
 	}
 	return nil
-}
-
-// deliver hands m to Read. It drops m once Close has started, and reports
-// false if the connection was closed first. While m waits for Read, the
-// liveness timeout is suspended.
-func (c *Conn) deliver(m message) bool {
-	select {
-	case c.msgs <- m:
-		return true
-	default:
-	}
-	c.live.hold()
-	defer c.live.resume()
-	select {
-	case c.msgs <- m:
-		return true
-	case <-c.discard:
-		return true
-	case <-c.closed:
-		return false
-	}
 }
 
 // awaitCloseSent waits a bounded time for our close frame to be written

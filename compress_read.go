@@ -30,7 +30,7 @@ type inflater struct {
 	// using context takeover (RFC 7692 §7.1.1).
 	takeover bool
 	dict     []byte
-	src      bytes.Reader
+	src      frameSource
 }
 
 // checkCompressedBit enforces RFC 7692 §6.1: RSV1 may be set only on the
@@ -49,36 +49,44 @@ func checkCompressedBit(h frameHeader) error {
 	return nil
 }
 
-// message decompresses a message from its compressed payload, which it may
-// modify. Decompression stops as soon as the output exceeds limit, which
-// fails the connection with 1009; invalid data fails it with 1007.
-func (d *inflater) message(compressed []byte, limit int64) ([]byte, error) {
-	d.src.Reset(append(compressed, syncFlushTail...))
+// read decompresses a message whose first frame has the header h, as its
+// frames arrive (RFC 7692 §7.2.2). The read goroutine has just read h.
+// Decompression stops as soon as the output exceeds limit, which fails the
+// connection with 1009. Invalid data fails it with 1007, as does text that
+// is not valid UTF-8, as soon as the output shows it.
+func (d *inflater) read(h frameHeader, text bool, limit int64) ([]byte, error) {
+	d.src.start(h)
 	r := d.reader()
-	defer func() {
-		d.src.Reset(nil) // the pooled reader must not keep the message alive
-		flateReaders.Put(r)
-	}()
+	defer d.release(r)
 
-	msg := make([]byte, 0, min(limit, max(512, 4*int64(len(compressed)))))
+	// An incompressible message is no longer than its frames, so the
+	// first frame's length is a fair first guess.
+	msg := make([]byte, 0, min(limit, max(512, h.length)))
+	var (
+		v     utf8Validator
+		probe [1]byte
+	)
 	for {
-		if len(msg) == cap(msg) {
-			if int64(len(msg)) == limit {
-				// Room is used up: one more byte means too much.
-				var probe [1]byte
-				n, err := r.Read(probe[:])
-				if n > 0 {
-					return nil, &protocolError{code: StatusMessageTooBig, err: fmt.Errorf("%w of %d bytes once decompressed", errMessageTooLarge, limit)}
-				}
-				if err = d.end(err); err != nil {
-					return nil, err
-				}
-				break
-			}
-			msg = grow(msg, cap(msg)-len(msg)+1, int(limit))[:len(msg)]
+		buf := msg[len(msg):cap(msg)]
+		if len(buf) == 0 {
+			// One more byte decides whether to grow msg, or whether the
+			// message is too big.
+			buf = probe[:]
 		}
-		n, err := r.Read(msg[len(msg):cap(msg)])
-		msg = msg[:len(msg)+n]
+		n, err := r.Read(buf)
+		switch {
+		case n == 0:
+		case len(msg) < cap(msg):
+			msg = msg[:len(msg)+n]
+		case int64(len(msg)) == limit:
+			return nil, &protocolError{code: StatusMessageTooBig, err: fmt.Errorf("%w of %d bytes once decompressed", errMessageTooLarge, limit)}
+		default:
+			msg = grow(msg, 1, int(limit))
+			msg[len(msg)-1] = probe[0]
+		}
+		if text && !v.valid(msg, false) {
+			return nil, &protocolError{code: StatusInvalidFramePayloadData, err: errInvalidUTF8}
+		}
 		if err != nil {
 			if err = d.end(err); err != nil {
 				return nil, err
@@ -86,20 +94,27 @@ func (d *inflater) message(compressed []byte, limit int64) ([]byte, error) {
 			break
 		}
 	}
+	if text && !v.valid(msg, true) {
+		return nil, &protocolError{code: StatusInvalidFramePayloadData, err: errInvalidUTF8}
+	}
 	if d.takeover {
 		d.keep(msg)
 	}
 	return msg, nil
 }
 
-// end maps the error that ended decompression: the end of a final block,
-// or the source running out after the appended sync flush, ends the message
-// (RFC 7692 §7.2.2); anything else is invalid data.
+// end maps the error that ended decompression. Running out of data after
+// the appended sync flush ends the message (RFC 7692 §7.2.2). So does a
+// final block, after which the rest of the message is ignored (§7.2.3.4).
+// A failure to read the frames is returned as it is; anything else is
+// invalid data.
 func (d *inflater) end(err error) error {
 	switch {
-	case err == nil:
-		return nil
-	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF) && d.src.Len() == 0:
+	case d.src.err != nil:
+		return d.src.err
+	case err == io.EOF:
+		return d.src.skip()
+	case errors.Is(err, io.ErrUnexpectedEOF) && d.src.eof:
 		return nil
 	}
 	return &protocolError{code: StatusInvalidFramePayloadData, err: fmt.Errorf("%w: %v", errCorruptCompressed, err)}
@@ -112,6 +127,16 @@ func (d *inflater) reader() io.ReadCloser {
 		return r
 	}
 	return flate.NewReaderDict(&d.src, d.dict)
+}
+
+// noSource is what pooled decompressors are reset to read, so that they
+// keep no connection alive.
+var noSource = bytes.NewReader(nil)
+
+// release returns the decompressor r to the pool.
+func (d *inflater) release(r io.ReadCloser) {
+	_ = r.(flate.Resetter).Reset(noSource, nil)
+	flateReaders.Put(r)
 }
 
 // keep appends msg to the dictionary, keeping its last windowSize bytes.

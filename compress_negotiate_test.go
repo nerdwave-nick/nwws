@@ -1,6 +1,7 @@
 package nwws
 
 import (
+	"compress/flate"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -144,21 +145,25 @@ func TestDeflateNegotiatedConfig(t *testing.T) {
 	}{
 		{"none", &CompressionOptions{}, "", true, nil},
 		{"server defaults", &CompressionOptions{}, "permessage-deflate", true,
-			&deflateConfig{threshold: DefaultCompressionThreshold, writeTakeover: true, writeWindowBits: 15, readTakeover: true}},
+			&deflateConfig{threshold: DefaultCompressionThreshold, level: flate.BestSpeed, writeTakeover: true, writeWindowBits: 15, readTakeover: true}},
 		{"client threshold", &CompressionOptions{Threshold: 1}, "permessage-deflate", false,
-			&deflateConfig{threshold: 1, writeTakeover: true, writeWindowBits: 15, readTakeover: true}},
+			&deflateConfig{threshold: 1, level: flate.BestSpeed, writeTakeover: true, writeWindowBits: 15, readTakeover: true}},
 		{"server side", &CompressionOptions{}, "permessage-deflate; server_no_context_takeover; server_max_window_bits=9", true,
-			&deflateConfig{threshold: DefaultCompressionThreshold, writeTakeover: false, writeWindowBits: 9, readTakeover: true}},
+			&deflateConfig{threshold: DefaultCompressionThreshold, level: flate.BestSpeed, writeTakeover: false, writeWindowBits: 9, readTakeover: true}},
 		{"client side", &CompressionOptions{}, "permessage-deflate; server_no_context_takeover; server_max_window_bits=9", false,
-			&deflateConfig{threshold: DefaultCompressionThreshold, writeTakeover: true, writeWindowBits: 15, readTakeover: false}},
+			&deflateConfig{threshold: DefaultCompressionThreshold, level: flate.BestSpeed, writeTakeover: true, writeWindowBits: 15, readTakeover: false}},
 		{"client window", &CompressionOptions{}, "permessage-deflate; client_no_context_takeover; client_max_window_bits=10", false,
-			&deflateConfig{threshold: DefaultCompressionThreshold, writeTakeover: false, writeWindowBits: 10, readTakeover: true}},
+			&deflateConfig{threshold: DefaultCompressionThreshold, level: flate.BestSpeed, writeTakeover: false, writeWindowBits: 10, readTakeover: true}},
 		{"server reads client", &CompressionOptions{}, "permessage-deflate; client_no_context_takeover", true,
-			&deflateConfig{threshold: DefaultCompressionThreshold, writeTakeover: true, writeWindowBits: 15, readTakeover: false}},
+			&deflateConfig{threshold: DefaultCompressionThreshold, level: flate.BestSpeed, writeTakeover: true, writeWindowBits: 15, readTakeover: false}},
+		{"server level", &CompressionOptions{Level: flate.BestCompression}, "permessage-deflate", true,
+			&deflateConfig{threshold: DefaultCompressionThreshold, level: flate.BestCompression, writeTakeover: true, writeWindowBits: 15, readTakeover: true}},
+		{"client Huffman only", &CompressionOptions{Level: flate.HuffmanOnly}, "permessage-deflate", false,
+			&deflateConfig{threshold: DefaultCompressionThreshold, level: flate.HuffmanOnly, writeTakeover: true, writeWindowBits: 15, readTakeover: true}},
 		// A client that offered client_no_context_takeover keeps to it even
 		// if the server's response leaves it out (§7.1.1.2).
 		{"client hint", &CompressionOptions{ClientNoContextTakeover: true}, "permessage-deflate", false,
-			&deflateConfig{threshold: DefaultCompressionThreshold, writeTakeover: false, writeWindowBits: 15, readTakeover: true}},
+			&deflateConfig{threshold: DefaultCompressionThreshold, level: flate.BestSpeed, writeTakeover: false, writeWindowBits: 15, readTakeover: true}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := tc.opts.negotiated(tc.extensions, tc.server)

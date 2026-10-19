@@ -7,17 +7,14 @@ import (
 	"sync"
 )
 
-// compressionLevel trades compression ratio for speed in favour of speed,
-// as messages are compressed on the connection's single writer.
-const compressionLevel = flate.BestSpeed
-
 // maxKeptBuffer bounds the compression buffer a connection keeps between
 // messages; a larger one, left by a large message, is released.
 const maxKeptBuffer = 64 << 10
 
-// flateWriters pools compressors without context takeover: index 0 for
-// compressionLevel, 1 for Huffman coding only.
-var flateWriters [2]sync.Pool
+// flateWriters pools compressors without context takeover, one pool per
+// level so that a connection never gets a compressor of another level:
+// index 0 for flate.HuffmanOnly, 1–9 for the levels 1–9.
+var flateWriters [flate.BestCompression + 1]sync.Pool
 
 // deflater compresses the messages a connection sends. The write goroutine
 // owns it.
@@ -56,32 +53,36 @@ func (d *deflater) compress(p []byte) []byte {
 		d.w = w
 	} else {
 		w.Reset(io.Discard) // the pooled writer must not keep d.buf alive
-		flateWriters[d.pool()].Put(w)
+		d.pool().Put(w)
 	}
 	b := d.buf.Bytes()
 	return b[:len(b)-len(syncFlushTail)]
 }
 
-// pool returns the index of the compressor pool for d.
-func (d *deflater) pool() int {
+// level returns the compression level of d. compress/flate always uses a
+// 32 KiB window. When the peer allows less (RFC 7692 §7.1.2), Huffman
+// coding only, without LZ77 matches, honours any window size.
+func (d *deflater) level() int {
 	if d.cfg.writeWindowBits < maxWindowBits {
-		return 1
+		return flate.HuffmanOnly
 	}
-	return 0
+	return d.cfg.level
 }
 
-// newWriter returns a compressor writing to d.buf. compress/flate always
-// uses a 32 KiB window. When the peer allows less (RFC 7692 §7.1.2),
-// Huffman coding only, without LZ77 matches, honours any window size.
+// pool returns the compressor pool of d's level.
+func (d *deflater) pool() *sync.Pool {
+	if l := d.level(); l != flate.HuffmanOnly {
+		return &flateWriters[l]
+	}
+	return &flateWriters[0]
+}
+
+// newWriter returns a compressor at d's level writing to d.buf.
 func (d *deflater) newWriter() *flate.Writer {
-	if w, ok := flateWriters[d.pool()].Get().(*flate.Writer); ok {
+	if w, ok := d.pool().Get().(*flate.Writer); ok {
 		w.Reset(&d.buf)
 		return w
 	}
-	level := compressionLevel
-	if d.pool() == 1 {
-		level = flate.HuffmanOnly
-	}
-	w, _ := flate.NewWriter(&d.buf, level) // the level is valid
+	w, _ := flate.NewWriter(&d.buf, d.level()) // Accept and Dial checked the level
 	return w
 }

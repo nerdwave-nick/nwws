@@ -1,6 +1,7 @@
 package nwws
 
 import (
+	"cmp"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -23,9 +24,12 @@ type AcceptOptions struct {
 	// CheckOrigin decides whether to accept a request, typically from its
 	// Origin header. A rejected request is answered with 403 Forbidden.
 	// If nil, requests without an Origin header are accepted, and requests
-	// whose Origin host (with port) differs from the request's Host, compared
-	// case-insensitively, are rejected. Browsers always send Origin, so the
-	// default blocks cross-site WebSocket hijacking.
+	// whose Origin host or port differs from the request's Host are
+	// rejected. Hosts are compared case-insensitively. A missing port is
+	// the default port of the Origin's scheme, 80 for http and ws and 443
+	// for https and wss, so https://a matches Host a:443 and http://a:80
+	// matches Host a. Browsers always send Origin, so the default blocks
+	// cross-site WebSocket hijacking.
 	CheckOrigin func(r *http.Request) bool
 
 	// ConnOptions configures the accepted connection.
@@ -99,8 +103,17 @@ func sameOrigin(r *http.Request) bool {
 		return false
 	}
 	u, err := url.Parse(origins[0])
-	return err == nil && u.Host != "" && strings.EqualFold(u.Host, r.Host)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	host := &url.URL{Host: r.Host} // splits host and port like an Origin
+	def := defaultPorts[u.Scheme]  // url.Parse lowercases the scheme
+	return strings.EqualFold(u.Hostname(), host.Hostname()) &&
+		cmp.Or(u.Port(), def) == cmp.Or(host.Port(), def)
 }
+
+// defaultPorts maps the schemes of an Origin to their default port.
+var defaultPorts = map[string]string{"http": "80", "ws": "80", "https": "443", "wss": "443"}
 
 func (o *AcceptOptions) selectSubprotocol(offered []string) string {
 	if o == nil {

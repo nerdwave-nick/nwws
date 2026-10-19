@@ -7,9 +7,11 @@
 #   2. the fuzzingserver against the nwws echo client (autobahn/echoclient).
 # Reports go to autobahn/reports/{server,client} for the plain pass and
 # autobahn/reports/{server,client}-deflate for the deflate pass. The script
-# exits non-zero unless every case passes (see autobahn/checkreport).
+# exits non-zero unless every case of the passes run is strictly OK (see
+# autobahn/checkreport).
 #
 # Environment:
+#   AUTOBAHN_PASSES the passes to run: plain, deflate or all (default all)
 #   AUTOBAHN_IMAGE  the suite's image (default crossbario/autobahn-testsuite:latest)
 #   GOFLAGS         passed to go build, for example GOFLAGS=-race
 set -euo pipefail
@@ -17,6 +19,16 @@ set -euo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 root=$(cd "$here/.." && pwd)
 image=${AUTOBAHN_IMAGE:-crossbario/autobahn-testsuite:latest}
+passes=${AUTOBAHN_PASSES:-all}
+case $passes in
+plain) sides=(server client) ;;
+deflate) sides=(server-deflate client-deflate) ;;
+all) sides=(server client server-deflate client-deflate) ;;
+*)
+	echo "AUTOBAHN_PASSES=$passes: want plain, deflate or all" >&2
+	exit 2
+	;;
+esac
 
 bin=$(mktemp -d)
 pids=()
@@ -70,7 +82,6 @@ fuzz_client() {
 echo "== building"
 (cd "$root" && go build -o "$bin/" ./autobahn/echoserver ./autobahn/echoclient ./autobahn/checkreport)
 
-sides=(server client server-deflate client-deflate)
 for side in "${sides[@]}"; do
 	rm -rf "${here:?}/reports/$side"
 	mkdir -p "$here/reports/$side"
@@ -81,16 +92,20 @@ docker_args=(--network host --user "$(id -u):$(id -g)"
 	-v "$here/config:/config:ro" -v "$here/reports:/reports" "$image")
 
 # The ports are also in the configurations.
-echo "== plain: fuzzingclient against the nwws echo server"
-fuzz_server fuzzingclient.json 127.0.0.1:9701
-echo "== plain: fuzzingserver against the nwws echo client"
-fuzz_client fuzzingserver.json 9702
-echo "== deflate: fuzzingclient against the nwws echo server"
-fuzz_server fuzzingclient-deflate.json 127.0.0.1:9703 -compress
-echo "== deflate: fuzzingserver against the nwws echo client"
-fuzz_client fuzzingserver-deflate.json 9704 -compress
+if [[ $passes != deflate ]]; then
+	echo "== plain: fuzzingclient against the nwws echo server"
+	fuzz_server fuzzingclient.json 127.0.0.1:9701
+	echo "== plain: fuzzingserver against the nwws echo client"
+	fuzz_client fuzzingserver.json 9702
+fi
+if [[ $passes != plain ]]; then
+	echo "== deflate: fuzzingclient against the nwws echo server"
+	fuzz_server fuzzingclient-deflate.json 127.0.0.1:9703 -compress
+	echo "== deflate: fuzzingserver against the nwws echo client"
+	fuzz_client fuzzingserver-deflate.json 9704 -compress
+fi
 
 echo "== results"
 reports=()
 for side in "${sides[@]}"; do reports+=("$here/reports/$side/index.json"); done
-"$bin/checkreport" -readme "$here/README.md" "${reports[@]}"
+"$bin/checkreport" "${reports[@]}"
