@@ -9,10 +9,6 @@ import (
 // entrySize is the memory a message takes in the queue besides its data.
 const entrySize = int(unsafe.Sizeof(message{}))
 
-// shrinkEntries is the queue capacity beyond which an empty queue gives
-// its memory back.
-const shrinkEntries = 256
-
 // msgQueue is a ring buffer of messages waiting for Read. It is guarded
 // by Conn.rmu.
 type msgQueue struct {
@@ -59,10 +55,16 @@ func (q *msgQueue) pop() message {
 	q.head = (q.head + 1) % len(q.buf)
 	q.n--
 	q.data -= cap(m.data)
-	if q.n == 0 && len(q.buf) > shrinkEntries {
+	return m
+}
+
+// shrink gives the ring of an empty queue back once it takes more than a
+// quarter of budget. A smaller ring is kept, so a queue that keeps filling
+// and draining does not allocate each time.
+func (q *msgQueue) shrink(budget int) {
+	if q.n == 0 && len(q.buf)*entrySize > budget/4 {
 		q.buf, q.head = nil, 0
 	}
-	return m
 }
 
 // clear drops every message.
@@ -146,6 +148,7 @@ func (c *Conn) next(ctx context.Context) (message, error) {
 	for {
 		if c.rq.n > 0 {
 			m := c.rq.pop()
+			c.rq.shrink(c.cfg.readBuffer)
 			if c.rwait != waitNone && c.waitDone(c.rwait) {
 				c.rwait = waitNone
 				notify(c.room) // under rmu, so awaitRead can take back a wake-up it gave up on

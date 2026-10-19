@@ -182,8 +182,26 @@ func TestMsgQueue(t *testing.T) {
 	}
 	pop(len(want))
 	check()
-	if len(q.buf) > shrinkEntries {
-		t.Fatalf("an empty queue keeps a ring of %d", len(q.buf))
+
+	// An emptied ring is kept while it is small against the budget, so a
+	// queue that keeps filling and draining does not allocate each time,
+	// and given back when it is not.
+	q.shrink(budget)
+	if len(q.buf) == 0 {
+		t.Fatal("an empty queue gave back a ring small against the budget")
+	}
+	ring := &q.buf[0]
+	for range 3 {
+		push(400)
+		pop(400)
+		q.shrink(budget)
+	}
+	if len(q.buf) == 0 || &q.buf[0] != ring {
+		t.Fatal("filling and draining the queue reallocated its ring")
+	}
+	q.shrink(len(q.buf) * entrySize)
+	if len(q.buf) != 0 {
+		t.Fatalf("an empty queue keeps a ring of %d against a budget of %d bytes", len(q.buf), len(q.buf)*entrySize)
 	}
 
 	// The ring grows only as far as the budget allows.
