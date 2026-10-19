@@ -212,7 +212,7 @@ func (c *Conn) readControl(h frameHeader) error {
 	case opPing:
 		c.queuePong(payload)
 	case opPong:
-		// Unsolicited pongs need no answer (RFC 6455 §5.5.3).
+		c.live.pong(payload) // unsolicited pongs need no answer (RFC 6455 §5.5.3)
 	case opClose:
 		return parseClose(payload)
 	}
@@ -220,8 +220,16 @@ func (c *Conn) readControl(h frameHeader) error {
 }
 
 // deliver hands m to Read. It drops m once Close has started, and reports
-// false if the connection was closed first.
+// false if the connection was closed first. While m waits for Read, the
+// liveness timeout is suspended.
 func (c *Conn) deliver(m message) bool {
+	select {
+	case c.msgs <- m:
+		return true
+	default:
+	}
+	c.live.hold()
+	defer c.live.resume()
 	select {
 	case c.msgs <- m:
 		return true

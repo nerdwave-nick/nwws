@@ -23,6 +23,21 @@ type ConnOptions struct {
 	// DefaultReadLimit.
 	ReadLimit int64
 
+	// PingInterval is how often the connection pings the peer. Zero or
+	// less means DefaultPingInterval.
+	PingInterval time.Duration
+
+	// PongTimeout is how long the connection waits, after a ping, for the
+	// peer to send a pong or any other data. Then it closes the
+	// connection, and Read returns an error matching ErrLivenessTimeout.
+	// The wait is suspended while a message waits for Read. Zero or less
+	// means DefaultPongTimeout.
+	PongTimeout time.Duration
+
+	// DisableLiveness turns pings and the pong timeout off. Pings from the
+	// peer are still answered.
+	DisableLiveness bool
+
 	// Compression enables permessage-deflate compression (RFC 7692). It
 	// is used only when the peer enables it too. If nil, it is off.
 	Compression *CompressionOptions
@@ -32,14 +47,33 @@ type ConnOptions struct {
 type connConfig struct {
 	readLimit    int64
 	closeTimeout time.Duration
+	pingInterval time.Duration // zero when liveness is off
+	pongTimeout  time.Duration
 	deflate      *deflateConfig // nil without compression
 }
 
 func (o *ConnOptions) config() connConfig {
-	cfg := connConfig{readLimit: DefaultReadLimit, closeTimeout: defaultCloseTimeout}
-	if o != nil && o.ReadLimit > 0 {
+	cfg := connConfig{
+		readLimit:    DefaultReadLimit,
+		closeTimeout: defaultCloseTimeout,
+		pingInterval: DefaultPingInterval,
+		pongTimeout:  DefaultPongTimeout,
+	}
+	if o == nil {
+		return cfg
+	}
+	if o.ReadLimit > 0 {
 		// A message must fit in a slice, which matters on 32-bit platforms.
 		cfg.readLimit = min(o.ReadLimit, math.MaxInt)
+	}
+	if o.PingInterval > 0 {
+		cfg.pingInterval = o.PingInterval
+	}
+	if o.PongTimeout > 0 {
+		cfg.pongTimeout = o.PongTimeout
+	}
+	if o.DisableLiveness {
+		cfg.pingInterval, cfg.pongTimeout = 0, 0
 	}
 	return cfg
 }
