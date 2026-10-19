@@ -17,6 +17,7 @@ go get github.com/nerdwave-nick/nwws
 | `Accept(w, r, *AcceptOptions) (*Conn, error)` | Upgrades an HTTP request on the server. A refused request is answered with an HTTP error status. |
 | `Dial(ctx, url, *DialOptions) (*Conn, *http.Response, error)` | Connects to a `ws://` or `wss://` URL. `ctx` bounds the dial and the handshake. |
 | `(*Conn).Read(ctx) (MessageType, []byte, error)` | Returns the next whole message. Cancelling `ctx` returns early and leaves the connection usable. |
+| `(*Conn).ReadInto(ctx, buf) (MessageType, []byte, error)` | `Read` into a buffer the caller reuses, without allocating in steady state. See [Reading into a reused buffer](#reading-into-a-reused-buffer). |
 | `(*Conn).Write(ctx, MessageType, []byte) error` | Sends a whole message and returns once it is on the network. Any goroutine may write. |
 | `(*Conn).Close(StatusCode, reason) error` | Runs the closing handshake: it sends a close frame, waits a bounded time for the peer's, then closes TCP. |
 | `(*Conn).CloseNow() error` | Closes TCP at once, without the closing handshake. See [Closing](#closing). |
@@ -246,6 +247,72 @@ c, err := nwws.Accept(w, r, &nwws.AcceptOptions{
 	ConnOptions: nwws.ConnOptions{ReadBuffer: 4 << 20}, // 4 MiB of read-ahead
 })
 ```
+
+## Reading into a reused buffer
+
+`Read` returns a new slice for every message, which the caller owns.
+`ReadInto(ctx, buf)` reads the next message into `buf[:0]` instead and
+returns the filled slice. Pass back what it returned, and reading allocates
+nothing per message in steady state:
+
+```go
+var buf []byte
+for {
+	typ, msg, err := c.ReadInto(ctx, buf)
+	if err != nil {
+		return err
+	}
+	handle(typ, msg) // msg is valid until the next ReadInto
+	buf = msg
+}
+```
+
+- **Growing.** When `buf` is too small for a message, `ReadInto` returns
+  a new slice that holds it, which the caller owns. Passing that slice
+  back makes the next messages of up to its size fit.
+- **Errors** are those of `Read`, also for a protocol violation reported
+  in order. On error `ReadInto` returns `buf[:0]`, so the buffer stays
+  available.
+- **Memory.** The connection reads each message into memory of its own,
+  so that it can read ahead. Once a connection has called `ReadInto`, it
+  takes that memory from a pool shared by all connections, and `ReadInto`
+  gives it back after copying the message into `buf`. The read-ahead
+  budget counts the full capacity of pooled memory, so reading still takes
+  at most `ReadBuffer + ReadLimit` per connection. The pool keeps no
+  buffer larger than 4 MiB, and the garbage collector empties it, as any
+  `sync.Pool`. A connection that never calls `ReadInto` does not use the
+  pool.
+- **Mixing.** `Read` and `ReadInto` may be mixed on one connection. A slice
+  `Read` returns is never reused.
+- **Compression.** Compressed messages are read into pooled memory too.
+  `compress/flate` still allocates while decompressing, mostly Huffman
+  tables for each block (see the measurements below).
+
+### Measurements
+
+Allocations per message, from `go test -run '^$' -bench
+'ReadThroughput|ReadInto|ReadCompressed'`, median of 10 runs (Go 1.27.2,
+linux/amd64, loopback TCP, binary messages):
+
+| | 300 B | 64 KiB | 1 MiB |
+| --- | --- | --- | --- |
+| `Read` | 1 alloc, 320 B | 1 alloc, 64 KiB | 1 alloc, 1 MiB |
+| `ReadInto` | **0** allocs, 1 B | **0** allocs, 10 B | **0** allocs, 1.7 KB |
+| `Read`, compressed | 2 allocs, 516 B | 8 allocs, 192 KB | 18 allocs, 2.7 MB |
+| `ReadInto`, compressed | 1 alloc, 2 B | 5 allocs, 522 B | 13 allocs, 94 KB |
+
+- The few bytes `ReadInto` still allocates on average come from refilling
+  the pool: after a garbage collection empties it, and while it warms up,
+  up to one read-ahead budget of messages takes new memory. With several
+  Ps, `sync.Pool` may need one buffer more per P before it serves every
+  message.
+- Compressed messages are text, compressed at level 1 without context
+  takeover. What remains is allocated inside `compress/flate`, mostly
+  Huffman tables for each block.
+- `BenchmarkLargeReadInto` compares with `BenchmarkLargeRead` on 1 MiB
+  messages. Among runs at a matching speed index (see that benchmark),
+  `ReadInto` read 2.9–3.3 GB/s against 2.5–2.7 GB/s for `Read`
+  (medians per role).
 
 ## Closing
 

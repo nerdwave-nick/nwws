@@ -39,6 +39,8 @@
 // pings by itself. It reads ahead while messages wait for Read, up to a
 // budget of 1 MiB by default ([ConnOptions.ReadBuffer]); once the budget is
 // full it stops reading, so keep calling Read while the connection is open.
+// Read returns a new slice for every message; [Conn.ReadInto] reads into a
+// buffer the caller reuses, without allocating in steady state.
 //
 // A connection pings its peer every 10 seconds and closes when no answer
 // arrives within 30 seconds of a ping; [ConnOptions] changes both or turns
