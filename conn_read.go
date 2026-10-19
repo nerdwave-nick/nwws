@@ -14,10 +14,12 @@ var (
 	errInvalidUTF8     = errors.New("nwws: text is not valid UTF-8")
 )
 
-// message is a complete data message.
+// message is a complete data message, or a violation by the peer that
+// Read reports in order, after the messages received before it.
 type message struct {
 	typ  MessageType
 	data []byte
+	fail *protocolError
 }
 
 // protocolError is a violation of RFC 6455 by the peer, for which the
@@ -50,6 +52,12 @@ func (c *Conn) Read(ctx context.Context) (MessageType, []byte, error) {
 	case m, ok := <-c.msgs:
 		if !ok {
 			return 0, nil, c.endErr()
+		}
+		if m.fail != nil {
+			// Queue the failure's close frame before Read returns, so a
+			// Close called after Read cannot replace its code.
+			_, _ = c.queueClose(closePayload(m.fail.code, ""))
+			return 0, nil, m.fail
 		}
 		return m.typ, m.data, nil
 	case <-ctx.Done():
@@ -84,6 +92,7 @@ func (c *Conn) readLoop() {
 		_, _ = c.queueClose(echo)
 		close(c.closeRcvd)
 	case failed:
+		c.deliverFailure(pe)
 		_, _ = c.queueClose(closePayload(pe.code, ""))
 	}
 	close(c.msgs)
@@ -242,6 +251,22 @@ func (c *Conn) deliver(m message) bool {
 		return true
 	case <-c.closed:
 		return false
+	}
+}
+
+// deliverFailure hands the violation pe to Read after the messages
+// before it, so the application can answer those first. It waits at most
+// the close timeout, after which the connection is failed anyway.
+func (c *Conn) deliverFailure(pe *protocolError) {
+	t := time.NewTimer(c.cfg.closeTimeout)
+	defer t.Stop()
+	c.live.hold()
+	defer c.live.resume()
+	select {
+	case c.msgs <- message{fail: pe}:
+	case <-c.discard:
+	case <-c.closed:
+	case <-t.C:
 	}
 }
 
