@@ -1,0 +1,12 @@
+{
+  "outdir": "/reports/server",
+  "servers": [
+    {
+      "agent": "nwws",
+      "url": "ws://127.0.0.1:9701"
+    }
+  ],
+  "cases": ["*"],
+  "exclude-cases": ["12.*", "13.*"],
+  "exclude-agent-cases": {}
+}

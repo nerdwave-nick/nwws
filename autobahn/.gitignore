@@ -1,0 +1,3 @@
+# Only the report summaries are committed; the full HTML report is not.
+/reports/*/*
+!/reports/*/index.json

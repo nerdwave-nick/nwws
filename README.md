@@ -123,3 +123,17 @@ func main() {
 
 For `wss://` with a private CA or client certificates (mutual TLS), set
 `DialOptions.TLSConfig`.
+
+## Autobahn conformance gate
+
+The [Autobahn test suite](https://github.com/crossbario/autobahn-testsuite)
+tests the nwws server and client in Docker:
+
+```sh
+./autobahn/run.sh
+```
+
+The script exits non-zero unless every case passes. `go test ./...` does
+not run the suite and needs no Docker. See
+[autobahn/README.md](autobahn/README.md) for what passing means, the
+NON-STRICT cases and their reasons, and the committed report summaries.
