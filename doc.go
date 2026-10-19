@@ -36,13 +36,14 @@
 //
 // Any goroutine may write: a single writer serialises all frames and sends
 // messages queued together in one network write. A connection answers
-// pings by itself. Keep calling Read while the connection is open: control
-// frames are processed only while no message waits for Read.
+// pings by itself. It reads ahead while messages wait for Read, up to a
+// budget of 1 MiB by default ([ConnOptions.ReadBuffer]); once the budget is
+// full it stops reading, so keep calling Read while the connection is open.
 //
 // A connection pings its peer every 10 seconds and closes when no answer
 // arrives within 30 seconds of a ping; [ConnOptions] changes both or turns
 // liveness off, and [Conn.RTT] reports the last round-trip time. The
-// timeout is suspended while a message waits for Read.
+// timeout is suspended while the read-ahead budget is full.
 //
 // When a connection ends, Read reports why with a [*CloseError], which
 // holds the peer's close code and reason, or StatusAbnormalClosure when

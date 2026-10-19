@@ -144,7 +144,7 @@ func (c *Conn) Close(code StatusCode, reason string) error {
 	if err != nil {
 		return err
 	}
-	c.discardOnce.Do(func() { close(c.discard) })
+	c.discardMessages()
 	defer c.wait()
 	defer c.closeNow(ErrClosed)
 

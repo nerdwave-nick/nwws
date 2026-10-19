@@ -30,8 +30,9 @@ go get github.com/nerdwave-nick/nwws
 - **Fragmented messages** are reassembled. Control frames between fragments
   are handled.
 - **Pings** are answered with a pong that carries the same payload.
-- **Keep reading.** While a complete message waits for `Read`, the
-  connection reads no further frames, so pings and close frames wait too.
+- **Read-ahead.** The connection keeps reading frames while messages wait
+  for `Read`, up to a budget of `ConnOptions.ReadBuffer` bytes (default
+  `DefaultReadBuffer`, 1 MiB). See [Read-ahead](#read-ahead).
 - **Read limit.** `ConnOptions.ReadLimit` caps the size of a message and
   the memory used to read it. The default is `DefaultReadLimit` (1 MiB).
 - **Protocol violations** close the connection with the matching code:
@@ -175,13 +176,15 @@ on both sides.
   - **Locally**, a pending `Read` returns a `*CloseError` with
     `StatusAbnormalClosure` (1006) that matches `ErrLivenessTimeout` with
     `errors.Is`. 1006 is never sent on the wire.
-- **Slow readers.** While a message waits for `Read`, the connection reads
-  no frames, so it cannot see the peer's pongs. The timeout is suspended
-  then, and starts again in full when `Read` takes the message. A live peer
-  is never timed out because the application is slow to call `Read`. The
-  peer's pings go unanswered meanwhile, so a peer with liveness on, such
-  as another nwws connection, may close the connection after its own pong
-  timeout. Keep calling `Read`.
+- **Slow readers.** While messages wait for `Read` within the read-ahead
+  budget, the connection keeps reading, so it answers the peer's pings and
+  sees its pongs; the timeout runs as usual. Once the budget is full, the
+  connection stops reading and cannot see the peer's pongs. The timeout is
+  suspended then, and starts again in full when `Read` makes room, so a
+  live peer is never timed out because the application is slow to call
+  `Read`. The peer's pings go unanswered meanwhile, so a peer with
+  liveness on, such as another nwws connection, may close the connection
+  after its own pong timeout. Keep calling `Read`.
 - **Round-trip time.** `(*Conn).RTT()` returns the time last measured from
   a ping to its pong, or zero before the first pong. Unsolicited pongs are
   accepted and do not count towards it.
@@ -202,6 +205,42 @@ _, _, err = c.Read(ctx)
 if errors.Is(err, nwws.ErrLivenessTimeout) {
 	log.Printf("peer stopped answering (last RTT %v)", c.RTT())
 }
+```
+
+## Read-ahead
+
+The connection reads ahead: it keeps reading frames, answering pings and
+watching liveness while complete messages wait for `Read`, up to a byte
+budget.
+
+- **Budget.** `ConnOptions.ReadBuffer`, in bytes; the default is
+  `DefaultReadBuffer` (1 MiB). Each queued message counts its size plus a
+  few dozen bytes of bookkeeping, so a flood of empty messages fills it
+  too. A message is always queued when none waits, even if it is larger
+  than the budget.
+- **Back-pressure.** Once the queued messages take the budget, the
+  connection stops reading until `Read` makes room. TCP then pushes back on
+  the peer, and the peer's pings go unanswered meanwhile.
+- **Memory.** Reading takes at most the budget plus one message being
+  read, so `ReadBuffer + ReadLimit` per connection.
+- **Order.** Messages reach `Read` in the order they arrived. A protocol
+  violation is reported after the messages before it.
+- **End.** When the connection ends, `Read` still returns the messages
+  queued before, then why it ended. The peer's close frame is answered as
+  soon as it is read, so `Write` returns `ErrClosed` from then on, even
+  while queued messages wait for `Read`.
+- **Close** drops the messages that are queued and not yet read.
+- **Cost.** Messages are queued without copying their data, and read-ahead
+  adds no goroutine.
+- **Keep calling `Read`.** Read-ahead lets the application be slow for a
+  while, not stop: a peer that keeps sending fills the budget, and then a
+  peer with liveness on may close the connection after its own pong
+  timeout. Set `ReadBuffer` to the burst the application must ride out.
+
+```go
+c, err := nwws.Accept(w, r, &nwws.AcceptOptions{
+	ConnOptions: nwws.ConnOptions{ReadBuffer: 4 << 20}, // 4 MiB of read-ahead
+})
 ```
 
 ## Autobahn conformance gate
