@@ -53,15 +53,16 @@ func checkCompressedBit(h frameHeader) error {
 // frames arrive (RFC 7692 §7.2.2). The read goroutine has just read h.
 // Decompression stops as soon as the output exceeds limit, which fails the
 // connection with 1009. Invalid data fails it with 1007, as does text that
-// is not valid UTF-8, as soon as the output shows it.
-func (d *inflater) read(h frameHeader, text bool, limit int64) ([]byte, error) {
+// is not valid UTF-8, as soon as the output shows it. With pool, the
+// message's memory comes from the pool.
+func (d *inflater) read(h frameHeader, text bool, limit int64, pool bool) ([]byte, error) {
 	d.src.start(h)
 	r := d.reader()
 	defer d.release(r)
 
 	// An incompressible message is no longer than its frames, so the
 	// first frame's length is a fair first guess.
-	msg := make([]byte, 0, min(limit, max(512, h.length)))
+	msg := newBuf(int(min(limit, max(512, h.length))), int(limit), pool)[:0]
 	var (
 		v     utf8Validator
 		probe [1]byte
@@ -81,7 +82,7 @@ func (d *inflater) read(h frameHeader, text bool, limit int64) ([]byte, error) {
 		case int64(len(msg)) == limit:
 			return nil, &protocolError{code: StatusMessageTooBig, err: fmt.Errorf("%w of %d bytes once decompressed", errMessageTooLarge, limit)}
 		default:
-			msg = grow(msg, 1, int(limit))
+			msg = grow(msg, 1, int(limit), pool)
 			msg[len(msg)-1] = probe[0]
 		}
 		if text && !v.valid(msg, false) {

@@ -64,7 +64,7 @@ func FuzzInflate(f *testing.F) {
 		for range 2 {
 			src := bytes.NewReader(data)
 			d.src.r = src
-			msg, err := d.read(frameHeader{fin: true, length: int64(len(data))}, false, limit)
+			msg, err := d.read(frameHeader{fin: true, length: int64(len(data))}, false, limit, false)
 			checkInflated(t, msg, err, limit)
 			if err == nil && src.Len() != 0 {
 				t.Fatalf("%d bytes of the frame left unread", src.Len())
@@ -144,12 +144,12 @@ func FuzzInflateFrames(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		msg, err := d.read(h, false, limit)
+		msg, err := d.read(h, false, limit, true) // memory from the pool, maybe holding earlier data
 		checkInflated(t, msg, err, limit)
 
 		one := &inflater{}
 		one.src.r = bytes.NewReader(data)
-		want, wantErr := one.read(frameHeader{fin: true, length: int64(len(data))}, false, limit)
+		want, wantErr := one.read(frameHeader{fin: true, length: int64(len(data))}, false, limit, false)
 		var pe, wantPE *protocolError
 		switch {
 		case (err == nil) != (wantErr == nil):
@@ -161,6 +161,7 @@ func FuzzInflateFrames(f *testing.F) {
 		case err != nil:
 			return
 		}
+		putBuf(msg)
 		if answered != pings {
 			t.Fatalf("%d of %d pings handled", answered, pings)
 		}
@@ -170,7 +171,7 @@ func FuzzInflateFrames(f *testing.F) {
 
 		// Text is checked as it is decompressed, with the same outcome.
 		one.src.r = bytes.NewReader(data)
-		txt, err := one.read(frameHeader{fin: true, length: int64(len(data))}, true, limit)
+		txt, err := one.read(frameHeader{fin: true, length: int64(len(data))}, true, limit, false)
 		checkInflated(t, txt, err, limit)
 		if valid := utf8.Valid(want); valid != (err == nil) {
 			t.Fatalf("text: valid UTF-8 %v, error %v", valid, err)

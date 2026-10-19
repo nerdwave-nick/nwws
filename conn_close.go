@@ -123,9 +123,13 @@ func parseClose(p []byte) error {
 }
 
 // Close performs the closing handshake (RFC 6455 §7.1.2): it sends a close
-// frame with code and reason after any messages already queued, waits a
-// bounded time for the peer's close frame, and closes the network
-// connection. Messages that arrive meanwhile are discarded.
+// frame with code and reason after any messages already queued, waits for
+// the peer's close frame, and closes the network connection. Each wait is
+// bounded by [ConnOptions.CloseTimeout]. Messages read ahead and not yet
+// read are dropped. Data frames that arrive meanwhile are skipped unread,
+// without allocating memory for them; only a message already being read
+// when Close starts is read to its end. [Conn.CloseNow] ends a Close in
+// progress at once.
 //
 // The code must be valid on the wire: 1000–1003, 1007–1014 or 3000–4999.
 // The reason must be UTF-8 and at most 123 bytes. Close returns ErrClosed

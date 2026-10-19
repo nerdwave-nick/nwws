@@ -34,16 +34,24 @@
 //	}
 //	_, reply, err := c.Read(ctx)
 //
-// Any goroutine may write: a single writer serialises all frames and sends
-// messages queued together in one network write. A connection answers
+// Any goroutine may write: frames are written one at a time. A Write on an
+// idle connection writes its frame itself; messages queued while a write
+// is in progress go out together in one network write. A connection answers
 // pings by itself. It reads ahead while messages wait for Read, up to a
 // budget of 1 MiB by default ([ConnOptions.ReadBuffer]); once the budget is
 // full it stops reading, so keep calling Read while the connection is open.
+// Read returns a new slice for every message; [Conn.ReadInto] reads into a
+// buffer the caller reuses, without allocating in steady state.
 //
 // A connection pings its peer every 10 seconds and closes when no answer
 // arrives within 30 seconds of a ping; [ConnOptions] changes both or turns
 // liveness off, and [Conn.RTT] reports the last round-trip time. The
 // timeout is suspended while the read-ahead budget is full.
+//
+// Close runs the closing handshake, waiting for the peer at most
+// [ConnOptions.CloseTimeout], 5 seconds by default, per step; data the
+// peer sends meanwhile is skipped without allocating. [Conn.CloseNow]
+// closes the network connection at once, without the handshake.
 //
 // When a connection ends, Read reports why with a [*CloseError], which
 // holds the peer's close code and reason, or StatusAbnormalClosure when

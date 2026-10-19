@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 )
 
 // MessageType is the type of a data message (RFC 6455 §5.6).
@@ -32,11 +33,12 @@ func (t MessageType) String() string {
 }
 
 // ErrClosed is returned by Write and Close once the connection is closing
-// or closed, and by Read when the connection ended without a close status.
+// or closed, by CloseNow when the connection is already closed, and by Read
+// when the connection ended without a close status, as after CloseNow.
 var ErrClosed = errors.New("nwws: connection closed")
 
 // Conn is a WebSocket connection, on the server or the client side. Read,
-// Write and Close may be called from any goroutine.
+// Write, Close and CloseNow may be called from any goroutine.
 //
 // A goroutine of the connection reads frames: it reassembles messages,
 // answers pings and takes part in the closing handshake. It queues
@@ -45,9 +47,11 @@ var ErrClosed = errors.New("nwws: connection closed")
 // full, it reads no further frames until Read makes room, so keep calling
 // Read for as long as the connection is in use.
 //
-// Another goroutine writes every frame, so concurrent writers never
-// interleave. Messages queued while a write is in progress are sent
-// together in the next one.
+// Frames are written one at a time, so concurrent writers never
+// interleave. A Write on an idle connection writes its frame itself;
+// messages queued while a write is in progress are sent together in the
+// next one, by another goroutine of the connection, which also pings the
+// peer. An idle connection holds no write buffer.
 type Conn struct {
 	nc          net.Conn
 	server      bool
@@ -60,7 +64,7 @@ type Conn struct {
 	closeRcvd chan struct{} // closed when the peer's close frame arrives
 	readDone  chan struct{}
 
-	// Write side, owned by writeLoop.
+	// Write side, owned by writeLoop or a direct Write; see writing.
 	fw        frameWriter
 	deflate   *deflater // compresses messages; nil without compression
 	bw        *bufio.Writer
@@ -72,6 +76,11 @@ type Conn struct {
 	queue   []*writeReq // data and close frames in order, guarded by wmu
 	pongs   []*writeReq // pongs to send first, oldest first, guarded by wmu
 	wclosed bool        // no more frames are accepted, guarded by wmu
+	writing bool        // writeLoop or a Write owns the write side, guarded by wmu
+
+	// The pooled buffer of bw and fw, held only while writing or while
+	// frames wait to be written; guarded by wmu.
+	wbuf *writeBuffer
 
 	// Complete messages read ahead for Read, guarded by rmu.
 	rmu        sync.Mutex
@@ -79,7 +88,8 @@ type Conn struct {
 	readers    int           // Reads waiting for a message
 	rwait      int           // waitNone, or what readLoop waits for Read to do
 	rend       bool          // readLoop queues no more messages
-	discarding bool          // Close has started: messages are dropped
+	discarding atomic.Bool   // Close has started: messages are dropped; set under rmu
+	pooling    atomic.Bool   // ReadInto was called: message memory comes from the pool
 	avail      chan struct{} // wakes a waiting Read; buffered
 	room       chan struct{} // wakes readLoop waiting for Read; buffered
 
@@ -105,7 +115,6 @@ func newConn(nc net.Conn, server bool, subprotocol string, cfg connConfig) *Conn
 		cfg:         cfg,
 		closeRcvd:   make(chan struct{}),
 		readDone:    make(chan struct{}),
-		bw:          bufio.NewWriterSize(nc, writeBufferSize),
 		wake:        make(chan struct{}, 1),
 		closeSent:   make(chan struct{}),
 		writeDone:   make(chan struct{}),
@@ -115,11 +124,10 @@ func newConn(nc net.Conn, server bool, subprotocol string, cfg connConfig) *Conn
 	}
 	c.live = newLiveness(c)
 	c.fr = frameReader{r: bufio.NewReader(c.live.reader(nc)), server: server}
-	c.fw = frameWriter{w: c.bw, server: server}
+	c.fw = frameWriter{server: server} // writes to wbuf; see takeWriteBuffer
 	c.initCompression()
 	go c.readLoop()
 	go c.writeLoop()
-	c.live.start()
 	return c
 }
 
@@ -172,13 +180,16 @@ func Dial(ctx context.Context, url string, opts *DialOptions) (*Conn, *http.Resp
 func (c *Conn) Subprotocol() string { return c.subprotocol }
 
 // closeNow closes the network connection at once. It records err as the
-// reason the connection ended, unless a reason is already recorded.
-func (c *Conn) closeNow(err error) {
+// reason the connection ended, unless a reason is already recorded, and
+// reports whether this call closed the connection.
+func (c *Conn) closeNow(err error) (closed bool) {
 	c.setErr(err)
 	c.closeOnce.Do(func() {
+		closed = true
 		close(c.closed)
 		_ = c.nc.Close()
 	})
+	return closed
 }
 
 func (c *Conn) setErr(err error) {
@@ -203,5 +214,4 @@ func (c *Conn) endErr() error {
 func (c *Conn) wait() {
 	<-c.readDone
 	<-c.writeDone
-	c.live.wait()
 }

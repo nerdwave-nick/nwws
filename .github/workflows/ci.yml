@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      autobahn-deflate:
+        description: Also run the compressed Autobahn pass (about 25 min)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  vet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
+      - run: go vet ./...
+
+  gofmt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
+      - name: gofmt -l .
+        run: |
+          unformatted=$(gofmt -l .)
+          if [[ -n $unformatted ]]; then
+            echo "These files are not gofmt-formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+  test-race:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
+      - run: go test -race ./...
+
+  test-386:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
+      - run: GOARCH=386 go test ./...
+
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
+      - name: Fuzz each target for 30 s
+        run: |
+          # go test -fuzz takes one target at a time, so each target of each
+          # package runs on its own.
+          count=0
+          for pkg in $(go list ./...); do
+            list=$(go test -list '^Fuzz' "$pkg")
+            for target in $(grep '^Fuzz' <<<"$list" || true); do
+              echo "::group::$pkg $target"
+              go test -run '^$' -fuzz "^${target}\$" -fuzztime 30s "$pkg"
+              echo "::endgroup::"
+              count=$((count + 1))
+            done
+          done
+          if ((count == 0)); then
+            echo "no fuzz targets found" >&2
+            exit 1
+          fi
+          echo "fuzzed $count targets"
+      - name: Upload failing fuzz inputs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-failures
+          path: '**/testdata/fuzz/'
+
+  autobahn:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
+      - run: docker pull crossbario/autobahn-testsuite:latest
+      - name: Autobahn, plain pass
+        run: AUTOBAHN_PASSES=plain ./autobahn/run.sh
+      - name: Upload the reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: autobahn-plain-reports
+          path: autobahn/reports/
+
+  autobahn-deflate:
+    if: github.event_name == 'workflow_dispatch' && inputs.autobahn-deflate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
+      - run: docker pull crossbario/autobahn-testsuite:latest
+      - name: Autobahn, compressed pass
+        run: AUTOBAHN_PASSES=deflate ./autobahn/run.sh
+      - name: Upload the reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: autobahn-deflate-reports
+          path: autobahn/reports/

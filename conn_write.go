@@ -3,6 +3,7 @@ package nwws
 import (
 	"context"
 	"fmt"
+	"time"
 	"unicode/utf8"
 )
 
@@ -13,6 +14,10 @@ const writeBufferSize = 16 << 10
 // maxPendingPongs bounds the pongs waiting for the writer. Beyond it, the
 // oldest unanswered pings go unanswered.
 const maxPendingPongs = 16
+
+// maxKeptBatch bounds the batch the write goroutine keeps between
+// batches; a larger one, left by a burst of writers, is released.
+const maxKeptBatch = 64
 
 // writeReq is a frame queued for the write goroutine.
 type writeReq struct {
@@ -26,12 +31,17 @@ type writeReq struct {
 // message is written to the network, so p may be reused afterwards. Text
 // messages must be valid UTF-8.
 //
+// When no other frame is being written or waits to be, Write writes the
+// frame itself. Otherwise it queues the message, and messages queued
+// while a write is in progress go out together in the next one.
+//
 // Cancelling ctx withdraws a message that is still queued; the connection
 // stays usable. A message already being written cannot be withdrawn
 // without corrupting the stream, so the connection is closed instead.
-// Write returns ErrClosed once Close has been called or the peer's close
-// frame has arrived, and a *[CloseError] with StatusAbnormalClosure if the
-// connection is lost while writing.
+// Write returns ErrClosed once Close or CloseNow has been called or the
+// peer's close frame has arrived, also when CloseNow cuts a pending write
+// short, and a *[CloseError] with StatusAbnormalClosure if the connection
+// is lost while writing.
 func (c *Conn) Write(ctx context.Context, typ MessageType, p []byte) error {
 	switch typ {
 	case MessageText:
@@ -45,10 +55,21 @@ func (c *Conn) Write(ctx context.Context, typ MessageType, p []byte) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	req := &writeReq{op: opcode(typ), payload: p, done: make(chan error, 1)}
-	if err := c.enqueue(req); err != nil {
+	req, err := c.ownOrQueue(opcode(typ), p)
+	switch {
+	case err != nil:
 		return err
+	case req == nil:
+		return c.writeDirect(ctx, opcode(typ), p)
 	}
+	err = c.awaitQueued(ctx, req)
+	putWriteReq(req)
+	return err
+}
+
+// awaitQueued waits until the write goroutine has written req, or
+// withdraws it when ctx is cancelled first.
+func (c *Conn) awaitQueued(ctx context.Context, req *writeReq) error {
 	select {
 	case err := <-req.done:
 		return err
@@ -62,9 +83,15 @@ func (c *Conn) Write(ctx context.Context, typ MessageType, p []byte) error {
 		return err
 	default:
 	}
-	c.closeNow(fmt.Errorf("nwws: write abandoned, connection closed: %w", ctx.Err()))
-	<-req.done // the write goroutine no longer uses p
+	c.abandonWrite(ctx)
+	<-req.done // the write goroutine no longer uses req
 	return ctx.Err()
+}
+
+// abandonWrite closes the connection because the write in progress was
+// cancelled.
+func (c *Conn) abandonWrite(ctx context.Context) {
+	c.closeNow(fmt.Errorf("nwws: write abandoned, connection closed: %w", ctx.Err()))
 }
 
 // enqueue queues req for the write goroutine. After a close frame, no
@@ -135,41 +162,74 @@ func (c *Conn) withdraw(req *writeReq) bool {
 func (c *Conn) writeLoop() {
 	defer close(c.writeDone)
 	defer c.failQueued()
+	var tick <-chan time.Time // liveness; nil when off
+	t := c.live.timer()
+	if t != nil {
+		defer t.Stop()
+		defer c.live.stopWatch()
+		tick = t.C
+	}
+	var batch []*writeReq
 	for {
 		select {
 		case <-c.wake:
+		case <-tick:
+			next, ok := c.live.tick(time.Now())
+			if !ok {
+				return
+			}
+			t.Reset(next)
 		case <-c.closed:
 			return
 		}
-		batch := c.takeBatch()
+		batch = c.takeBatch(batch[:0])
 		if len(batch) == 0 {
-			continue
+			continue // nothing queued, or a direct write wakes us when done
 		}
+		c.live.guard()
+		werr := c.writeBatch(batch)
+		c.live.unguard()
 		var err error
-		if werr := c.writeBatch(batch); werr != nil {
-			err = &CloseError{Code: StatusAbnormalClosure, err: werr}
+		if werr != nil {
+			err = c.writeErr(werr)
 		}
-		for _, r := range batch {
+		closing := batch[len(batch)-1].op == opClose
+		if err == nil && !closing {
+			c.releaseWriter()
+		} else {
+			c.endWriter()
+		}
+		// A request may be reused as soon as its writer is told.
+		for i, r := range batch {
 			if r.done != nil {
 				r.done <- err
 			}
+			batch[i] = nil
 		}
 		if err != nil {
 			c.closeNow(err)
 			return
 		}
-		if batch[len(batch)-1].op == opClose {
+		if closing {
 			close(c.closeSent)
+			c.live.closeWritten()
 			return
+		}
+		if cap(batch) > maxKeptBatch {
+			batch = nil // a burst of writers is over
 		}
 	}
 }
 
-// takeBatch takes every queued frame, the pending pongs first.
-func (c *Conn) takeBatch() []*writeReq {
+// takeBatch appends every queued frame to batch, the pending pongs first,
+// and takes ownership of the frame writer for them. It takes nothing
+// while a direct write owns the frame writer.
+func (c *Conn) takeBatch(batch []*writeReq) []*writeReq {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
-	batch := make([]*writeReq, 0, len(c.pongs)+len(c.queue))
+	if c.writing {
+		return batch
+	}
 	batch = append(batch, c.pongs...)
 	clear(c.pongs)
 	c.pongs = c.pongs[:0]
@@ -179,6 +239,12 @@ func (c *Conn) takeBatch() []*writeReq {
 	for _, r := range batch {
 		r.taken = true
 	}
+	if len(batch) == 0 {
+		c.putWriteBuffer() // kept for requests withdrawn meanwhile
+		return batch
+	}
+	c.writing = true
+	c.takeWriteBuffer()
 	return batch
 }
 
@@ -206,4 +272,7 @@ func (c *Conn) failQueued() {
 		}
 	}
 	c.queue, c.pongs = nil, nil
+	if !c.writing {
+		c.putWriteBuffer()
+	}
 }

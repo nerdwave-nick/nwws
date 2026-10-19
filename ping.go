@@ -38,6 +38,10 @@ func (c *Conn) RTT() time.Duration {
 // within the timeout. Any data received proves the peer alive, not only
 // the pong: a pong may wait behind a large frame on a slow link.
 //
+// It runs in the write goroutine, on a timer in its select; see tick.
+// While that goroutine writes a batch, which a peer that reads nothing can
+// block, a watch timer ticks in its place; see guard.
+//
 // While the read goroutine waits for Read, because the read-ahead budget
 // is full or a violation waits to be reported, it reads no frames and
 // cannot see the peer's pongs. The timeout is suspended then, and restarts
@@ -47,15 +51,19 @@ type liveness struct {
 	c        *Conn
 	interval time.Duration
 	timeout  time.Duration
-	done     chan struct{} // closed when run ends
 
-	mu      sync.Mutex
-	waiting time.Time     // when the ping awaiting a sign of life was queued; zero if none
-	held    bool          // reading has stopped until Read makes room
-	queued  bool          // a ping waits for the write goroutine
-	seq     uint64        // payload of the latest ping
-	sentAt  time.Time     // when the latest ping was written; zero once answered
-	rtt     time.Duration // the last measured round-trip time
+	mu       sync.Mutex
+	nextPing time.Time     // when the next ping is due
+	closeBy  time.Time     // after a timeout, when to stop waiting for its close frame; zero before
+	waiting  time.Time     // when the ping awaiting a sign of life was queued; zero if none
+	held     bool          // reading has stopped until Read makes room
+	queued   bool          // a ping waits for the write goroutine
+	seq      uint64        // payload of the latest ping
+	sentAt   time.Time     // when the latest ping was written; zero once answered
+	rtt      time.Duration // the last measured round-trip time
+	batch    bool          // the write goroutine is writing a batch
+	watch    *time.Timer   // ticks while batch is set; nil until the first batch
+	watchAt  time.Time     // when watch fires; zero when it is not armed
 }
 
 // newLiveness returns the liveness of c, or nil when it is off.
@@ -67,81 +75,36 @@ func newLiveness(c *Conn) *liveness {
 		c:        c,
 		interval: c.cfg.pingInterval,
 		timeout:  c.cfg.pongTimeout,
-		done:     make(chan struct{}),
 	}
 }
 
-func (l *liveness) start() {
-	if l != nil {
-		go l.run()
-	}
-}
-
-// wait waits for the liveness goroutine to end.
-func (l *liveness) wait() {
-	if l != nil {
-		<-l.done
-	}
-}
-
-// run pings every interval and enforces the timeout until the connection
-// closes.
-func (l *liveness) run() {
-	defer close(l.done)
-	nextPing := time.Now().Add(l.interval)
-	t := time.NewTimer(l.interval)
-	defer t.Stop()
-	for {
-		select {
-		case <-t.C:
-		case <-l.c.closed:
-			return
-		}
-		now := time.Now()
-		if l.expired(now) {
-			l.timeOut()
-			return
-		}
-		if !now.Before(nextPing) {
-			l.ping(now)
-			nextPing = now.Add(l.interval)
-		}
-		t.Reset(min(nextPing.Sub(now), l.untilExpiry(now)))
-	}
-}
-
+// expired reports whether the timeout has expired. The caller holds mu.
 func (l *liveness) expired(now time.Time) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	return !l.held && !l.waiting.IsZero() && now.Sub(l.waiting) >= l.timeout
 }
 
 // untilExpiry returns how long until the timeout may expire. While
 // reading is held, the timeout restarts in full once Read makes room, so
-// it cannot expire sooner than a full timeout from now.
+// it cannot expire sooner than a full timeout from now. The caller holds
+// mu.
 func (l *liveness) untilExpiry(now time.Time) time.Duration {
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	if l.waiting.IsZero() || l.held {
 		return l.timeout
 	}
 	return l.waiting.Add(l.timeout).Sub(now)
 }
 
-// ping queues a ping, unless one is already awaiting an answer or the
-// write goroutine has not yet written the previous one.
-func (l *liveness) ping(now time.Time) {
-	l.mu.Lock()
+// ping returns the payload of a new ping to queue, or nil when one is
+// already awaiting an answer or the write goroutine has not yet written
+// the previous one. The caller holds mu.
+func (l *liveness) ping(now time.Time) []byte {
 	if !l.waiting.IsZero() || l.queued {
-		l.mu.Unlock()
-		return
+		return nil
 	}
 	l.waiting = now
 	l.queued = true
 	l.seq++
-	payload := binary.BigEndian.AppendUint64(nil, l.seq)
-	l.mu.Unlock()
-	_ = l.c.enqueue(&writeReq{op: opPing, payload: payload}) // fails once closing
+	return binary.BigEndian.AppendUint64(nil, l.seq)
 }
 
 // pingWriting is called by the write goroutine just before it writes a
