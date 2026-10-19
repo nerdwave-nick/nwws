@@ -80,15 +80,18 @@ const (
 // budget.
 func (c *Conn) pushMessage(m message) (more bool) {
 	c.rmu.Lock()
-	defer c.rmu.Unlock()
 	if c.discarding {
+		c.rmu.Unlock()
 		return true
 	}
 	c.rq.push(m, c.cfg.readBuffer)
-	if c.readers > 0 {
-		notify(c.avail)
+	wake := c.readers > 0
+	more = c.rq.fits(c.cfg.readBuffer)
+	c.rmu.Unlock()
+	if wake {
+		notify(c.avail) // after unlocking, so the woken Read finds rmu free
 	}
-	return c.rq.fits(c.cfg.readBuffer)
+	return more
 }
 
 // awaitRead waits for Read to make room in the queue (waitRoom) or to
@@ -145,12 +148,13 @@ func (c *Conn) next(ctx context.Context) (message, error) {
 			m := c.rq.pop()
 			if c.rwait != waitNone && c.waitDone(c.rwait) {
 				c.rwait = waitNone
-				notify(c.room)
+				notify(c.room) // under rmu, so awaitRead can take back a wake-up it gave up on
 			}
-			if c.rq.n > 0 && c.readers > 0 {
-				notify(c.avail) // wake another waiting Read
-			}
+			wake := c.rq.n > 0 && c.readers > 0
 			c.rmu.Unlock()
+			if wake {
+				notify(c.avail) // for another waiting Read
+			}
 			return m, nil
 		}
 		if c.rend {
