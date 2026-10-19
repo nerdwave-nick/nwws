@@ -3,9 +3,12 @@ package nwws
 import (
 	"context"
 	"io"
+	"net"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // writeBenchSizes are the message sizes of the write benchmarks: a typical
@@ -18,9 +21,42 @@ var writeBenchSizes = []struct {
 	{"64KiB", 64 << 10},
 }
 
+// benchUnixConn returns the server side of a Unix domain socket as a
+// Conn, with liveness off, and the raw client end. Unlike loopback TCP,
+// it has no receive window that the kernel may shrink under memory
+// pressure, which can stall a writer for seconds.
+func benchUnixConn(b *testing.B) (*Conn, net.Conn) {
+	b.Helper()
+	ln, err := net.Listen("unix", filepath.Join(b.TempDir(), "s"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		s, _ := ln.Accept()
+		accepted <- s
+	}()
+	peer, err := net.Dial("unix", ln.Addr().String())
+	if err != nil {
+		b.Fatal(err)
+	}
+	s := <-accepted
+	if s == nil {
+		b.Fatal("accept failed")
+	}
+	c := newConn(s, true, "", connConfig{readLimit: 2 << 20, closeTimeout: time.Second})
+	b.Cleanup(func() {
+		_ = peer.Close()
+		c.closeNow(ErrClosed)
+		c.wait()
+	})
+	return c, peer
+}
+
 // BenchmarkWriteThroughput measures how fast messages are written by one
 // goroutine sending back to back, and by 16 goroutines sending at once,
-// to a peer that reads as fast as it can.
+// to a peer that reads as fast as it can over a Unix domain socket.
 func BenchmarkWriteThroughput(b *testing.B) {
 	for _, writers := range []struct {
 		name string
@@ -28,7 +64,7 @@ func BenchmarkWriteThroughput(b *testing.B) {
 	}{{"1writer", 1}, {"16writers", 16}} {
 		for _, size := range writeBenchSizes {
 			b.Run(writers.name+"/"+size.name, func(b *testing.B) {
-				c, peer := benchConn(b)
+				c, peer := benchUnixConn(b)
 				go func() { _, _ = io.Copy(io.Discard, peer) }()
 				msg := make([]byte, size.n)
 				ctx := context.Background()
