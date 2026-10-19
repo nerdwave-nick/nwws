@@ -231,7 +231,7 @@ included.
 - **Measured.** `TestIdleConnectionCost` accepts 1000 connections over
   loopback from a client in another process, with liveness on both sides.
   It requires at most 16 KB of heap and 2 goroutines per server
-  connection, and measures about 7–8 KB. No application goroutine reads in
+  connection, and measures about 6–9 KB. No application goroutine reads in
   the test; goroutine stacks are not counted as heap.
 
 ```sh
