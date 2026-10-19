@@ -18,14 +18,21 @@ type ConnOptions struct {
 	// ReadLimit is the size, in bytes, of the largest message the
 	// connection reads. A larger message closes the connection with
 	// StatusMessageTooBig (1009). The limit also bounds the memory a
-	// message being read takes. Zero or less means DefaultReadLimit.
+	// message being read takes. For a compressed message, it applies to
+	// the compressed and to the decompressed size. Zero or less means
+	// DefaultReadLimit.
 	ReadLimit int64
+
+	// Compression enables permessage-deflate compression (RFC 7692). It
+	// is used only when the peer enables it too. If nil, it is off.
+	Compression *CompressionOptions
 }
 
 // connConfig is the effective configuration of a connection.
 type connConfig struct {
 	readLimit    int64
 	closeTimeout time.Duration
+	deflate      *deflateConfig // nil without compression
 }
 
 func (o *ConnOptions) config() connConfig {

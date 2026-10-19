@@ -184,7 +184,8 @@ func (c *Conn) takeBatch() []*writeReq {
 
 func (c *Conn) writeBatch(batch []*writeReq) error {
 	for _, r := range batch {
-		if err := c.fw.writeFrame(true, 0, r.op, r.payload); err != nil {
+		rsv, payload := c.deflate.frame(r.op, r.payload)
+		if err := c.fw.writeFrame(true, rsv, r.op, payload); err != nil {
 			return err
 		}
 	}

@@ -54,12 +54,14 @@ type Conn struct {
 
 	// Read side, owned by readLoop.
 	fr        frameReader
+	inflate   *inflater     // decompresses messages; nil without compression
 	msgs      chan message  // complete messages for Read; closed when readLoop ends
 	closeRcvd chan struct{} // closed when the peer's close frame arrives
 	readDone  chan struct{}
 
 	// Write side, owned by writeLoop.
 	fw        frameWriter
+	deflate   *deflater // compresses messages; nil without compression
 	bw        *bufio.Writer
 	wake      chan struct{} // signals queued frames; buffered
 	closeSent chan struct{} // closed once a close frame is on the wire
@@ -99,6 +101,7 @@ func newConn(nc net.Conn, server bool, subprotocol string, cfg connConfig) *Conn
 	}
 	c.fr = frameReader{r: bufio.NewReader(nc), server: server}
 	c.fw = frameWriter{w: c.bw, server: server}
+	c.initCompression()
 	go c.readLoop()
 	go c.writeLoop()
 	return c
@@ -118,7 +121,7 @@ func Accept(w http.ResponseWriter, r *http.Request, opts *AcceptOptions) (*Conn,
 	if opts != nil {
 		co = &opts.ConnOptions
 	}
-	return newConn(hs.conn, true, hs.subprotocol, co.config()), nil
+	return newConn(hs.conn, true, hs.subprotocol, co.configFor(hs.extensions, true)), nil
 }
 
 // Dial opens a WebSocket connection to a ws or wss URL, performing the
@@ -135,7 +138,7 @@ func Dial(ctx context.Context, url string, opts *DialOptions) (*Conn, *http.Resp
 	if opts != nil {
 		co = &opts.ConnOptions
 	}
-	return newConn(hs.conn, false, hs.subprotocol, co.config()), resp, nil
+	return newConn(hs.conn, false, hs.subprotocol, co.configFor(hs.extensions, false)), resp, nil
 }
 
 // Subprotocol returns the subprotocol agreed in the opening handshake, or

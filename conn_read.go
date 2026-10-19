@@ -105,6 +105,7 @@ func (c *Conn) readMessages() error {
 		msg   []byte
 		typ   opcode
 		inMsg bool // a message has started and not finished
+		dfl   bool // the message is compressed (RFC 7692 §6)
 		text  utf8Validator
 		limit = c.cfg.readLimit
 	)
@@ -115,6 +116,9 @@ func (c *Conn) readMessages() error {
 		h, err := c.fr.readHeader()
 		if err != nil {
 			return frameReadError(err)
+		}
+		if err := checkCompressedBit(h); err != nil {
+			return err
 		}
 		if h.opcode.isControl() {
 			if err := c.readControl(h); err != nil {
@@ -133,9 +137,18 @@ func (c *Conn) readMessages() error {
 		}
 		if !inMsg {
 			typ, inMsg, text = h.opcode, true, utf8Validator{}
+			dfl = h.rsv&rsv1Bit != 0
 		}
 		if msg, err = c.readPayload(msg, h, int(limit)); err != nil {
 			return err
+		}
+		if dfl {
+			if !h.fin {
+				continue // the compressed bytes are buffered in msg
+			}
+			if msg, err = c.inflate.message(msg, limit); err != nil {
+				return err
+			}
 		}
 		if typ == opText && !text.valid(msg, h.fin) {
 			return &protocolError{code: StatusInvalidFramePayloadData, err: errInvalidUTF8}
