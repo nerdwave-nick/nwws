@@ -134,10 +134,18 @@ on both sides.
   every other frame.
 - **Pong timeout.** If nothing arrives from the peer within `PongTimeout`
   (default `DefaultPongTimeout`, 30 s) after a ping, the connection closes.
-  A pending `Read` then returns a `*CloseError` with
-  `StatusAbnormalClosure` (1006) that matches `ErrLivenessTimeout` with
-  `errors.Is`. A pong is the expected answer, but any data from the peer
-  shows that it is alive.
+  A pong is the expected answer, but any data from the peer shows that it
+  is alive.
+  - **The peer** is sent a close frame with `StatusGoingAway` (1001) and
+    the reason `liveness timeout`, so a peer that is alive but slow learns
+    why it was dropped. The frame goes through the single writer, behind
+    any frames already queued. It is best effort: the connection waits at
+    most 1 s for it to be written, then closes TCP without waiting for the
+    peer's close frame. A peer that blocks writes is still dropped within
+    `PongTimeout` plus that second.
+  - **Locally**, a pending `Read` returns a `*CloseError` with
+    `StatusAbnormalClosure` (1006) that matches `ErrLivenessTimeout` with
+    `errors.Is`. 1006 is never sent on the wire.
 - **Slow readers.** While a message waits for `Read`, the connection reads
   no frames, so it cannot see the peer's pongs. The timeout is suspended
   then, and starts again in full when `Read` takes the message. A live peer
