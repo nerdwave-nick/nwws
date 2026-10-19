@@ -30,6 +30,7 @@ func (c *Conn) ownOrQueue(op opcode, p []byte) (*writeReq, error) {
 		return nil, ErrClosed
 	case !c.writing && len(c.queue) == 0 && len(c.pongs) == 0:
 		c.writing = true
+		c.takeWriteBuffer()
 		return nil, nil
 	}
 	req := writeReqs.Get().(*writeReq)
@@ -40,14 +41,17 @@ func (c *Conn) ownOrQueue(op opcode, p []byte) (*writeReq, error) {
 }
 
 // releaseWriter gives up ownership of the frame writer, and wakes the
-// write goroutine for frames queued meanwhile.
+// write goroutine for frames queued meanwhile, which keep the write
+// buffer. With nothing queued, the write buffer goes back to the pool.
 func (c *Conn) releaseWriter() {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
 	c.writing = false
 	if len(c.queue) > 0 || len(c.pongs) > 0 {
 		c.signal()
+		return
 	}
+	c.putWriteBuffer()
 }
 
 // writeDirect writes and flushes one data frame in the calling goroutine,
@@ -65,11 +69,13 @@ func (c *Conn) writeDirect(ctx context.Context, op opcode, p []byte) error {
 	}
 	if !stop() {
 		c.abandonWrite(ctx) // returns only once the connection is closed
+		c.endWriter()
 		return ctx.Err()
 	}
 	if err != nil {
 		err = c.writeErr(err) // ErrClosed if this side closed the connection
 		c.closeNow(err)
+		c.endWriter()
 		return err
 	}
 	c.releaseWriter()

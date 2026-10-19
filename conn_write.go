@@ -3,6 +3,7 @@ package nwws
 import (
 	"context"
 	"fmt"
+	"time"
 	"unicode/utf8"
 )
 
@@ -161,10 +162,22 @@ func (c *Conn) withdraw(req *writeReq) bool {
 func (c *Conn) writeLoop() {
 	defer close(c.writeDone)
 	defer c.failQueued()
+	var tick <-chan time.Time // liveness; nil when off
+	t := c.live.timer()
+	if t != nil {
+		defer t.Stop()
+		tick = t.C
+	}
 	var batch []*writeReq
 	for {
 		select {
 		case <-c.wake:
+		case <-tick:
+			next, ok := c.live.tick(time.Now())
+			if !ok {
+				return
+			}
+			t.Reset(next)
 		case <-c.closed:
 			return
 		}
@@ -172,13 +185,18 @@ func (c *Conn) writeLoop() {
 		if len(batch) == 0 {
 			continue // nothing queued, or a direct write wakes us when done
 		}
+		c.live.guard()
+		werr := c.writeBatch(batch)
+		c.live.unguard()
 		var err error
-		if werr := c.writeBatch(batch); werr != nil {
+		if werr != nil {
 			err = c.writeErr(werr)
 		}
 		closing := batch[len(batch)-1].op == opClose
 		if err == nil && !closing {
 			c.releaseWriter()
+		} else {
+			c.endWriter()
 		}
 		// A request may be reused as soon as its writer is told.
 		for i, r := range batch {
@@ -193,6 +211,7 @@ func (c *Conn) writeLoop() {
 		}
 		if closing {
 			close(c.closeSent)
+			c.live.closeWritten()
 			return
 		}
 		if cap(batch) > maxKeptBatch {
@@ -219,7 +238,12 @@ func (c *Conn) takeBatch(batch []*writeReq) []*writeReq {
 	for _, r := range batch {
 		r.taken = true
 	}
-	c.writing = len(batch) > 0
+	if len(batch) == 0 {
+		c.putWriteBuffer() // kept for requests withdrawn meanwhile
+		return batch
+	}
+	c.writing = true
+	c.takeWriteBuffer()
 	return batch
 }
 
@@ -247,4 +271,7 @@ func (c *Conn) failQueued() {
 		}
 	}
 	c.queue, c.pongs = nil, nil
+	if !c.writing {
+		c.putWriteBuffer()
+	}
 }

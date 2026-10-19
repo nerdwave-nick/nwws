@@ -10,30 +10,30 @@ const livenessCloseWait = time.Second
 // sends.
 const livenessCloseReason = "liveness timeout"
 
+// livenessError is the error a connection ends with after a liveness
+// timeout: StatusAbnormalClosure with ErrLivenessTimeout, which is never
+// sent on the wire.
+func livenessError() error {
+	return &CloseError{Code: StatusAbnormalClosure, err: ErrLivenessTimeout}
+}
+
 // timeOut ends the connection after a liveness timeout. It records the
-// timeout first, so that Read reports StatusAbnormalClosure with
-// ErrLivenessTimeout, which is never sent on the wire. Then it queues a
+// timeout first, so that Read reports livenessError. Then it queues a
 // best-effort close frame StatusGoingAway through the write goroutine,
-// waits a bounded time for it to be written, and closes the network
-// connection without waiting for the peer's close frame.
-func (l *liveness) timeOut() {
+// which closes the network connection once the frame is written, or at
+// closeBy, without waiting for the peer's close frame; see closeWritten
+// and tick. It reports false if it closed the connection itself, because
+// a close frame was already queued.
+func (l *liveness) timeOut(closeBy time.Time) bool {
 	c := l.c
-	err := &CloseError{Code: StatusAbnormalClosure, err: ErrLivenessTimeout}
+	err := livenessError()
 	c.setErr(err)
-	defer c.closeNow(err)
-	req, qerr := c.queueClose(closePayload(StatusGoingAway, livenessCloseReason))
-	if qerr != nil {
-		return // a close frame is already queued
+	if _, qerr := c.queueClose(closePayload(StatusGoingAway, livenessCloseReason)); qerr != nil {
+		c.closeNow(err) // a close frame is already queued
+		return false
 	}
-	wait := min(livenessCloseWait, c.cfg.closeTimeout)
-	// The deadline also ends a network write the peer blocks; the timer
+	// The deadline also ends a network write the peer blocks; closeBy
 	// covers a connection that ignores deadlines.
-	_ = c.nc.SetWriteDeadline(time.Now().Add(wait))
-	t := time.NewTimer(wait)
-	defer t.Stop()
-	select {
-	case <-req.done:
-	case <-c.closed:
-	case <-t.C:
-	}
+	_ = c.nc.SetWriteDeadline(closeBy)
+	return true
 }
