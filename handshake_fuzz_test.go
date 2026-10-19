@@ -23,6 +23,8 @@ func FuzzAcceptRequest(f *testing.F) {
 		"Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits\r\n\r\n"))
 	f.Add([]byte("GET / HTTP/1.1\r\nHost: a\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 8\r\n\r\n"))
 	f.Add([]byte("POST / HTTP/1.0\r\nHost: a\r\n\r\n"))
+	f.Add([]byte("GET / HTTP/1.1\r\nHost: [::1]:443\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+		"Sec-WebSocket-Key: " + fuzzKey + "\r\nSec-WebSocket-Version: 13\r\nOrigin: https://[::1]\r\n\r\n"))
 	opts := &AcceptOptions{Subprotocols: []string{"superchat", "chat"}}
 	rejections := []int{http.StatusBadRequest, http.StatusForbidden, http.StatusMethodNotAllowed,
 		http.StatusUpgradeRequired, http.StatusHTTPVersionNotSupported}
