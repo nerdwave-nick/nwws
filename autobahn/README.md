@@ -56,14 +56,16 @@ messages of up to 16 MiB.
 
 ## NON-STRICT cases
 
-The same cases are NON-STRICT on the server and the client side. The
-first group depends on timing, so some of its cases may come out `OK` in a
-given run.
+Only 15 cases of the suite have a `NON-STRICT` outcome at all; every other
+case is either `OK` or failed. They fall into the classes below, and each
+class is listed whole, on both sides.
 
 | Cases | Reason |
 | --- | --- |
-| 3.2, 3.3, 4.1.3, 4.1.4, 4.2.3, 4.2.4, 5.15 | The peer sends a valid message and then an invalid frame at once. The connection's read goroutine reads ahead: it fails the connection on the invalid frame, sending the close frame, before the application has echoed the valid message. The suite expects the echo first, but also accepts this. |
-| 6.4.3, 6.4.4 | The peer sends a text frame in chunks, with invalid UTF-8 in an early chunk. nwws validates UTF-8 per frame once the frame's payload has arrived, not per chunk, so it fails the connection when the frame is complete instead of at the first invalid byte. |
+| 3.2, 3.3, 3.4, 4.1.3, 4.1.4, 4.1.5, 4.2.3, 4.2.4, 4.2.5, 5.15 | Read-ahead, timing-dependent. The peer sends a valid message and then an invalid frame at once (an RSV bit, a reserved opcode, or a continuation with nothing to continue). The connection's read goroutine reads ahead: it fails the connection on the invalid frame, sending the close frame, before the application has echoed the valid message. The suite expects the echo first, but also accepts this. Whether the echo or the close goes out first depends on scheduling, so any case of this class may come out `OK` or `NON-STRICT` in a given run. |
+| 6.4.3, 6.4.4 | The peer sends a text frame in chunks, with invalid UTF-8 in an early chunk. nwws validates UTF-8 per frame once the frame's payload has arrived, not per chunk, so it fails the connection when the frame is complete instead of at the first invalid byte. This does not depend on timing. The two cases of the same section that send the invalid UTF-8 in a frame of its own are always `OK` and are not listed. |
+
+The remaining case of the 15 always ends up `INFORMATIONAL` (see below).
 
 ## UNIMPLEMENTED cases
 

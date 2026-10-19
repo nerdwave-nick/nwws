@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -117,6 +118,31 @@ Case 1.1.1 is mentioned outside the section.
 	} {
 		if got := doc(tc.behavior, tc.id); got != tc.want {
 			t.Errorf("documented(%s, %q) = %v, want %v", tc.behavior, tc.id, got, tc.want)
+		}
+	}
+}
+
+// The gate's README allows exactly the classes of cases whose outcome may be
+// NON-STRICT (the only 15 cases with a NON-STRICT outcome in the suite, less
+// the always OK 6.4.1 and 6.4.2 and the INFORMATIONAL 7.1.6), and no
+// UNIMPLEMENTED case.
+func TestReadmeAllowlist(t *testing.T) {
+	b, err := os.ReadFile("../README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := documentedIn(string(b))
+	nonStrict := map[string]bool{
+		"3.2": true, "3.3": true, "3.4": true, "4.1.3": true, "4.1.4": true, "4.1.5": true,
+		"4.2.3": true, "4.2.4": true, "4.2.5": true, "5.15": true, "6.4.3": true, "6.4.4": true,
+	}
+	for _, id := range []string{"3.1", "3.2", "3.3", "3.4", "3.5", "4.1.3", "4.1.4", "4.1.5", "4.2.3", "4.2.4",
+		"4.2.5", "5.15", "6.4.1", "6.4.2", "6.4.3", "6.4.4", "7.1.6", "13.3.1", "13.5.18"} {
+		if got := doc("NON-STRICT", id); got != nonStrict[id] {
+			t.Errorf("NON-STRICT %s allowed = %v, want %v", id, got, nonStrict[id])
+		}
+		if doc("UNIMPLEMENTED", id) {
+			t.Errorf("UNIMPLEMENTED %s allowed", id)
 		}
 	}
 }
