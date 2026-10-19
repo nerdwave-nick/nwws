@@ -22,7 +22,7 @@ var syncTail = []byte{0x00, 0x00, 0xff, 0xff}
 // deflateOn is the configuration of a connection that negotiated
 // permessage-deflate with context takeover in both directions.
 func deflateOn() deflateConfig {
-	return deflateConfig{threshold: 64, writeTakeover: true, writeWindowBits: 15, readTakeover: true}
+	return deflateConfig{threshold: 64, level: flate.BestSpeed, writeTakeover: true, writeWindowBits: 15, readTakeover: true}
 }
 
 // startDeflateConn starts a connection with permessage-deflate as
@@ -141,7 +141,7 @@ func TestDeflateWrite(t *testing.T) {
 func TestDeflateRead(t *testing.T) {
 	for _, server := range []bool{true, false} {
 		t.Run(map[bool]string{true: "server", false: "client"}[server], func(t *testing.T) {
-			c, peer := startDeflateConn(t, server, deflateConfig{threshold: 64, writeWindowBits: 15})
+			c, peer := startDeflateConn(t, server, deflateConfig{threshold: 64, level: flate.BestSpeed, writeWindowBits: 15})
 			pc := newPeerCompressor(t, false)
 
 			msg := []byte(strings.Repeat("grüß dich, ", 50))

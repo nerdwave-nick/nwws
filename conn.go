@@ -115,15 +115,21 @@ func newConn(nc net.Conn, server bool, subprotocol string, cfg connConfig) *Conn
 // the server side of the opening handshake (RFC 6455 §4.2). On failure it
 // has already answered the request with an HTTP error status, and the
 // error wraps ErrBadHandshake when the request was invalid or refused.
-// The connection outlives the HTTP handler; close it when done.
+// Invalid options, such as a compression level out of range, are answered
+// with 500 Internal Server Error without upgrading. The connection
+// outlives the HTTP handler; close it when done.
 func Accept(w http.ResponseWriter, r *http.Request, opts *AcceptOptions) (*Conn, error) {
-	hs, err := acceptHandshake(w, r, opts)
-	if err != nil {
-		return nil, err
-	}
 	var co *ConnOptions
 	if opts != nil {
 		co = &opts.ConnOptions
+	}
+	if err := co.check(); err != nil {
+		http.Error(w, "nwws: invalid server options", http.StatusInternalServerError)
+		return nil, err
+	}
+	hs, err := acceptHandshake(w, r, opts)
+	if err != nil {
+		return nil, err
 	}
 	return newConn(hs.conn, true, hs.subprotocol, co.configFor(hs.extensions, true)), nil
 }
@@ -132,15 +138,19 @@ func Accept(w http.ResponseWriter, r *http.Request, opts *AcceptOptions) (*Conn,
 // client side of the opening handshake (RFC 6455 §4.1). Cancelling ctx
 // aborts the dial and the handshake; it has no effect on the returned
 // connection. The server's handshake response is returned whenever one
-// was read, also when the server refused the handshake.
+// was read, also when the server refused the handshake. Invalid options,
+// such as a compression level out of range, fail Dial before it dials.
 func Dial(ctx context.Context, url string, opts *DialOptions) (*Conn, *http.Response, error) {
-	hs, resp, err := dialHandshake(ctx, url, opts)
-	if err != nil {
-		return nil, resp, err
-	}
 	var co *ConnOptions
 	if opts != nil {
 		co = &opts.ConnOptions
+	}
+	if err := co.check(); err != nil {
+		return nil, nil, err
+	}
+	hs, resp, err := dialHandshake(ctx, url, opts)
+	if err != nil {
+		return nil, resp, err
 	}
 	return newConn(hs.conn, false, hs.subprotocol, co.configFor(hs.extensions, false)), resp, nil
 }
