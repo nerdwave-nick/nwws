@@ -36,6 +36,9 @@ type DialOptions struct {
 	// Subprotocols lists the subprotocols to offer, most preferred first.
 	// The server may select one of them or none.
 	Subprotocols []string
+
+	// ConnOptions configures the dialed connection.
+	ConnOptions
 }
 
 // maxRejectionBody bounds how much of a non-101 response body is kept.

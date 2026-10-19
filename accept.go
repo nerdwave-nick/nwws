@@ -10,7 +10,8 @@ import (
 )
 
 // AcceptOptions configures the server side of the opening handshake.
-// The zero value accepts same-origin requests without a subprotocol.
+// The zero value accepts same-origin requests without a subprotocol and
+// uses the default connection options.
 type AcceptOptions struct {
 	// Subprotocols lists the subprotocols the server supports, most
 	// preferred first. The first one the client also offers is selected;
@@ -26,6 +27,9 @@ type AcceptOptions struct {
 	// case-insensitively, are rejected. Browsers always send Origin, so the
 	// default blocks cross-site WebSocket hijacking.
 	CheckOrigin func(r *http.Request) bool
+
+	// ConnOptions configures the accepted connection.
+	ConnOptions
 }
 
 // rejectError is a refused handshake request, answered with status before
