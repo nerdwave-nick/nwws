@@ -34,8 +34,8 @@ func (c *Conn) RTT() time.Duration {
 }
 
 // liveness pings the peer every interval through the write goroutine and
-// closes the connection (see timeOut) when, after a ping, nothing arrives
-// from the peer within the timeout. Any data received proves the peer alive, not only
+// closes the connection when, after a ping, nothing arrives from the peer
+// within the timeout. Any data received proves the peer alive, not only
 // the pong: a pong may wait behind a large frame on a slow link.
 //
 // While a complete message waits for Read, the read goroutine reads no
