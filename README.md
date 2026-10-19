@@ -201,17 +201,55 @@ opts := &nwws.AcceptOptions{
 | `Threshold` | Messages shorter than this many bytes are sent uncompressed. The default is `DefaultCompressionThreshold` (128). |
 | `ServerNoContextTakeover` | The server compresses each message on its own (`server_no_context_takeover`), which saves memory at the cost of ratio. |
 | `ClientNoContextTakeover` | The same for the client (`client_no_context_takeover`). |
+| `Level` | The `compress/flate` level: `flate.HuffmanOnly` or 1 (`flate.BestSpeed`) to 9 (`flate.BestCompression`). Zero means `flate.BestSpeed`. `Accept` and `Dial` refuse any other value before upgrading or dialing. |
 
 - **Context takeover** is used in both directions unless either side asks
   for no context takeover. It compresses small, similar messages far
-  better, and costs a compressor and a 32 KiB window per connection.
+  better, and costs a compressor and a 32 KiB window per connection (see
+  *Memory* below). Without context takeover, compressors are pooled
+  between messages, one pool per level.
+- **Level.** Higher levels compress better and cost more CPU time on the
+  connection's single writer. The default, `flate.BestSpeed`, suits
+  messages sent as they happen.
 - **Window size.** `compress/flate` always compresses with a 32 KiB window.
   If the peer limits nwws's window to fewer than 15 bits
   (`server_max_window_bits` or `client_max_window_bits`), nwws accepts and
-  compresses with Huffman coding only, which uses no window. Decompression
-  accepts any window up to 15 bits.
+  compresses with Huffman coding only, which uses no window, whatever the
+  level. Decompression accepts any window up to 15 bits.
 - **Read limit.** `ReadLimit` applies to the decompressed size, and also to
   the compressed size. Decompression stops as soon as a message exceeds it,
   so a small compressed message cannot inflate into a large allocation.
 - Compressed messages that do not decompress close the connection with
   1007, like invalid UTF-8.
+
+### Memory
+
+With context takeover, each connection keeps its `compress/flate`
+compressor between messages, and the window of the peer's messages for
+decompression. Measured heap retained per connection, with both sides
+compressing (Go 1.27.2, linux/amd64):
+
+| Compression | Retained per connection |
+| --- | --- |
+| off | 27 KB |
+| level 1 (`flate.BestSpeed`, the default) | 0.91 MB |
+| level 6 | 1.17 MB |
+| level 9 | 1.24 MB |
+
+Almost all of it is the compressor. A lone `flate.Writer`, measured the
+same way after compressing about 64 KiB, holds 0.81 MB at level 1,
+1.08 MB at level 6 and 1.14 MB at level 9. For many mostly
+idle connections, `ServerNoContextTakeover` (on the server) or
+`ClientNoContextTakeover` (on the client) returns the compressor to a pool
+after each message, at the cost of compression ratio.
+
+**Method.** `BenchmarkDeflateRetainedMemory` opens 32 connection pairs
+over loopback TCP, with context takeover in both directions at the given
+level. Each pair exchanges one 64 KiB text message each way, so that every
+compressor and window is in use. After `runtime.GC`, the growth of
+`runtime.MemStats.HeapAlloc` since before the pairs were opened, divided
+by the 64 connections, is the `B/conn` metric:
+
+```sh
+go test -run '^$' -bench DeflateRetainedMemory -benchtime 5x -count 3
+```
