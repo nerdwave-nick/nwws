@@ -123,3 +123,46 @@ func main() {
 
 For `wss://` with a private CA or client certificates (mutual TLS), set
 `DialOptions.TLSConfig`.
+
+## Liveness
+
+Each connection checks that its peer is still there. It is on by default,
+on both sides.
+
+- **Pings.** The connection pings the peer every `PingInterval` (default
+  `DefaultPingInterval`, 10 s). Pings go through the single writer, like
+  every other frame.
+- **Pong timeout.** If nothing arrives from the peer within `PongTimeout`
+  (default `DefaultPongTimeout`, 30 s) after a ping, the connection closes.
+  A pending `Read` then returns a `*CloseError` with
+  `StatusAbnormalClosure` (1006) that matches `ErrLivenessTimeout` with
+  `errors.Is`. A pong is the expected answer, but any data from the peer
+  shows that it is alive.
+- **Slow readers.** While a message waits for `Read`, the connection reads
+  no frames, so it cannot see the peer's pongs. The timeout is suspended
+  then, and starts again in full when `Read` takes the message. A live peer
+  is never timed out because the application is slow to call `Read`. The
+  peer's pings go unanswered meanwhile, so a peer with liveness on, such
+  as another nwws connection, may close the connection after its own pong
+  timeout. Keep calling `Read`.
+- **Round-trip time.** `(*Conn).RTT()` returns the time last measured from
+  a ping to its pong, or zero before the first pong. Unsolicited pongs are
+  accepted and do not count towards it.
+- **Turning it off.** Set `DisableLiveness`. The connection then sends no
+  pings, but still answers the peer's.
+
+```go
+c, _, err := nwws.Dial(ctx, "wss://example.com/feed", &nwws.DialOptions{
+	ConnOptions: nwws.ConnOptions{
+		PingInterval: 5 * time.Second,
+		PongTimeout:  15 * time.Second,
+	},
+})
+if err != nil {
+	return err
+}
+_, _, err = c.Read(ctx)
+if errors.Is(err, nwws.ErrLivenessTimeout) {
+	log.Printf("peer stopped answering (last RTT %v)", c.RTT())
+}
+```
