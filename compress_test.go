@@ -314,6 +314,8 @@ func TestDeflateCompressedBitErrors(t *testing.T) {
 // The read limit applies to the decompressed size, and decompression stops
 // once it is exceeded: a small compressed message that inflates to far more
 // than the limit closes the connection with 1009 without inflating it all.
+// TestDeflateReadLimitIncompressible covers messages whose compressed size
+// exceeds the limit.
 func TestDeflateReadLimit(t *testing.T) {
 	const limit = 64 << 10
 	pc := newPeerCompressor(t, false)
@@ -351,13 +353,6 @@ func TestDeflateReadLimit(t *testing.T) {
 		if n := after.TotalAlloc - before.TotalAlloc; n > 8<<20 {
 			t.Errorf("reading the bomb allocated %d bytes; want decompression to stop at the limit", n)
 		}
-	})
-	t.Run("compressed size over the limit", func(t *testing.T) {
-		c, peer := start(t)
-		peer.sendFrame(false, rsv1Bit, opBinary, make([]byte, limit/2))
-		peer.sendFrame(true, 0, opContinuation, make([]byte, limit/2+1))
-		_, _, err := readMsg(t, c)
-		assertProtocolError(t, err, StatusMessageTooBig)
 	})
 }
 
