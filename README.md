@@ -195,6 +195,8 @@ on both sides.
 - **Round-trip time.** `(*Conn).RTT()` returns the time last measured from
   a ping to its pong, or zero before the first pong. Unsolicited pongs are
   accepted and do not count towards it.
+- **Closing.** Liveness stops once a close frame is written. The close
+  timeout bounds the rest of the closing handshake.
 - **Turning it off.** Set `DisableLiveness`. The connection then sends no
   pings, but still answers the peer's.
 
@@ -212,6 +214,28 @@ _, _, err = c.Read(ctx)
 if errors.Is(err, nwws.ErrLivenessTimeout) {
 	log.Printf("peer stopped answering (last RTT %v)", c.RTT())
 }
+```
+
+## Idle connections
+
+An idle connection keeps little memory and two goroutines, liveness
+included.
+
+- **Write buffer.** The 16 KiB write buffer and the frame writer's scratch
+  space come from a pool when frames are written, and go back once nothing
+  is left to write. An idle connection holds neither.
+- **Goroutines.** One goroutine reads frames. The other writes queued
+  frames and runs liveness on a timer. While that goroutine is blocked
+  writing to a peer that reads nothing, a timer runs liveness in its place,
+  so the pong timeout still ends the connection.
+- **Measured.** `TestIdleConnectionCost` accepts 1000 connections over
+  loopback from a client in another process, with liveness on both sides.
+  It requires at most 16 KB of heap and 2 goroutines per server
+  connection, and measures about 7–8 KB. No application goroutine reads in
+  the test; goroutine stacks are not counted as heap.
+
+```sh
+go test -run TestIdleConnectionCost -v
 ```
 
 ## Read-ahead
