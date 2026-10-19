@@ -3,1484 +3,1484 @@
       "12.1.1": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 452,
+         "duration": 679,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_1_1.json"
       },
       "12.1.10": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2677,
+         "duration": 2795,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_1_10.json"
       },
       "12.1.11": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 430,
+         "duration": 610,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_1_11.json"
       },
       "12.1.12": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 524,
+         "duration": 491,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_1_12.json"
       },
       "12.1.13": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 909,
+         "duration": 859,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_1_13.json"
       },
       "12.1.14": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1563,
+         "duration": 1499,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_1_14.json"
       },
       "12.1.15": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2990,
+         "duration": 2997,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_1_15.json"
       },
       "12.1.16": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2581,
+         "duration": 2787,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_1_16.json"
       },
       "12.1.17": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2557,
+         "duration": 2480,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_1_17.json"
       },
       "12.1.18": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2513,
+         "duration": 2618,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_1_18.json"
       },
       "12.1.2": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 399,
+         "duration": 547,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_1_2.json"
       },
       "12.1.3": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 266,
+         "duration": 516,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_1_3.json"
       },
       "12.1.4": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 194,
+         "duration": 282,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_1_4.json"
       },
       "12.1.5": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 283,
+         "duration": 295,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_1_5.json"
       },
       "12.1.6": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 319,
+         "duration": 464,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_1_6.json"
       },
       "12.1.7": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 457,
+         "duration": 496,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_1_7.json"
       },
       "12.1.8": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 733,
+         "duration": 790,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_1_8.json"
       },
       "12.1.9": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1654,
+         "duration": 1299,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_1_9.json"
       },
       "12.2.1": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 96,
+         "duration": 137,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_2_1.json"
       },
       "12.2.10": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 28847,
+         "duration": 27536,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_2_10.json"
       },
       "12.2.11": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2374,
+         "duration": 1982,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_2_11.json"
       },
       "12.2.12": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 3624,
+         "duration": 3420,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_2_12.json"
       },
       "12.2.13": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 6972,
+         "duration": 6167,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_2_13.json"
       },
       "12.2.14": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 5509,
+         "duration": 3705,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_2_14.json"
       },
       "12.2.15": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 12228,
+         "duration": 12274,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_2_15.json"
       },
       "12.2.16": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 12698,
+         "duration": 12431,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_2_16.json"
       },
       "12.2.17": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 12442,
+         "duration": 12341,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_2_17.json"
       },
       "12.2.18": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 24835,
+         "duration": 27734,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_2_18.json"
       },
       "12.2.2": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 104,
+         "duration": 147,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_2_2.json"
       },
       "12.2.3": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 201,
+         "duration": 127,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_2_3.json"
       },
       "12.2.4": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 207,
+         "duration": 216,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_2_4.json"
       },
       "12.2.5": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 368,
+         "duration": 311,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_2_5.json"
       },
       "12.2.6": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 551,
+         "duration": 509,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_2_6.json"
       },
       "12.2.7": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 973,
+         "duration": 999,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_2_7.json"
       },
       "12.2.8": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2079,
+         "duration": 1974,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_2_8.json"
       },
       "12.2.9": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 5325,
+         "duration": 5466,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_2_9.json"
       },
       "12.3.1": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 353,
+         "duration": 307,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_3_1.json"
       },
       "12.3.10": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 15157,
+         "duration": 16705,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_3_10.json"
       },
       "12.3.11": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 732,
+         "duration": 719,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_3_11.json"
       },
       "12.3.12": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1313,
+         "duration": 1390,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_3_12.json"
       },
       "12.3.13": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 3524,
+         "duration": 2815,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_3_13.json"
       },
       "12.3.14": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 7291,
+         "duration": 8625,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_3_14.json"
       },
       "12.3.15": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 27777,
+         "duration": 24779,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_3_15.json"
       },
       "12.3.16": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 24870,
+         "duration": 26605,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_3_16.json"
       },
       "12.3.17": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 11577,
+         "duration": 13907,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_3_17.json"
       },
       "12.3.18": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 18536,
+         "duration": 14611,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_3_18.json"
       },
       "12.3.2": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 395,
+         "duration": 361,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_3_2.json"
       },
       "12.3.3": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 682,
+         "duration": 571,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_3_3.json"
       },
       "12.3.4": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 931,
+         "duration": 845,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_3_4.json"
       },
       "12.3.5": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1551,
+         "duration": 1503,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_3_5.json"
       },
       "12.3.6": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2088,
+         "duration": 2005,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_3_6.json"
       },
       "12.3.7": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 3614,
+         "duration": 3560,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_3_7.json"
       },
       "12.3.8": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 5210,
+         "duration": 3177,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_3_8.json"
       },
       "12.3.9": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 4913,
+         "duration": 5044,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_3_9.json"
       },
       "12.4.1": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 428,
+         "duration": 418,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_4_1.json"
       },
       "12.4.10": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 3824,
+         "duration": 3515,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_4_10.json"
       },
       "12.4.11": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 717,
+         "duration": 891,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_4_11.json"
       },
       "12.4.12": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 845,
+         "duration": 1109,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_4_12.json"
       },
       "12.4.13": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1196,
+         "duration": 4595,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_4_13.json"
       },
       "12.4.14": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2065,
+         "duration": 6973,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_4_14.json"
       },
       "12.4.15": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 12517,
+         "duration": 10071,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_4_15.json"
       },
       "12.4.16": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 9788,
+         "duration": 8738,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_4_16.json"
       },
       "12.4.17": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 8402,
+         "duration": 7849,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_4_17.json"
       },
       "12.4.18": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 8038,
+         "duration": 3282,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_4_18.json"
       },
       "12.4.2": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 429,
+         "duration": 421,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_4_2.json"
       },
       "12.4.3": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 516,
+         "duration": 417,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_4_3.json"
       },
       "12.4.4": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 452,
+         "duration": 445,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_4_4.json"
       },
       "12.4.5": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 503,
+         "duration": 585,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_4_5.json"
       },
       "12.4.6": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 688,
+         "duration": 663,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_4_6.json"
       },
       "12.4.7": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 785,
+         "duration": 872,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_4_7.json"
       },
       "12.4.8": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1198,
+         "duration": 1162,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_4_8.json"
       },
       "12.4.9": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1994,
+         "duration": 2071,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_4_9.json"
       },
       "12.5.1": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 293,
+         "duration": 89,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_5_1.json"
       },
       "12.5.10": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 7425,
+         "duration": 7616,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_5_10.json"
       },
       "12.5.11": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 502,
+         "duration": 579,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_5_11.json"
       },
       "12.5.12": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 839,
+         "duration": 837,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_5_12.json"
       },
       "12.5.13": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1741,
+         "duration": 2018,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_5_13.json"
       },
       "12.5.14": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 4236,
+         "duration": 4670,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_5_14.json"
       },
       "12.5.15": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 9859,
+         "duration": 11659,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_5_15.json"
       },
       "12.5.16": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 9936,
+         "duration": 18186,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_5_16.json"
       },
       "12.5.17": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 16760,
+         "duration": 20774,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_5_17.json"
       },
       "12.5.18": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 21062,
+         "duration": 8761,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_5_18.json"
       },
       "12.5.2": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 368,
+         "duration": 88,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_5_2.json"
       },
       "12.5.3": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 469,
+         "duration": 114,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_5_3.json"
       },
       "12.5.4": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 706,
+         "duration": 161,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_5_4.json"
       },
       "12.5.5": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 733,
+         "duration": 264,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_5_5.json"
       },
       "12.5.6": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 396,
+         "duration": 351,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_5_6.json"
       },
       "12.5.7": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 598,
+         "duration": 646,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_5_7.json"
       },
       "12.5.8": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1257,
+         "duration": 1203,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_5_8.json"
       },
       "12.5.9": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2851,
+         "duration": 3557,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_12_5_9.json"
       },
       "13.1.1": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 711,
+         "duration": 136,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_1_1.json"
       },
       "13.1.10": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1849,
+         "duration": 2350,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_1_10.json"
       },
       "13.1.11": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 303,
+         "duration": 397,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_1_11.json"
       },
       "13.1.12": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 439,
+         "duration": 581,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_1_12.json"
       },
       "13.1.13": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 660,
+         "duration": 737,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_1_13.json"
       },
       "13.1.14": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1067,
+         "duration": 1403,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_1_14.json"
       },
       "13.1.15": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2601,
+         "duration": 2644,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_1_15.json"
       },
       "13.1.16": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2333,
+         "duration": 3284,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_1_16.json"
       },
       "13.1.17": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2447,
+         "duration": 2858,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_1_17.json"
       },
       "13.1.18": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2486,
+         "duration": 2886,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_1_18.json"
       },
       "13.1.2": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 790,
+         "duration": 147,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_1_2.json"
       },
       "13.1.3": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 754,
+         "duration": 169,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_1_3.json"
       },
       "13.1.4": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 886,
+         "duration": 235,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_1_4.json"
       },
       "13.1.5": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 975,
+         "duration": 224,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_1_5.json"
       },
       "13.1.6": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1284,
+         "duration": 269,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_1_6.json"
       },
       "13.1.7": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1746,
+         "duration": 393,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_1_7.json"
       },
       "13.1.8": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1226,
+         "duration": 671,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_1_8.json"
       },
       "13.1.9": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1113,
+         "duration": 1163,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_1_9.json"
       },
       "13.2.1": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 429,
+         "duration": 206,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_2_1.json"
       },
       "13.2.10": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2968,
+         "duration": 2786,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_2_10.json"
       },
       "13.2.11": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 389,
+         "duration": 448,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_2_11.json"
       },
       "13.2.12": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 536,
+         "duration": 530,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_2_12.json"
       },
       "13.2.13": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 953,
+         "duration": 932,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_2_13.json"
       },
       "13.2.14": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1387,
+         "duration": 1614,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_2_14.json"
       },
       "13.2.15": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2841,
+         "duration": 2857,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_2_15.json"
       },
       "13.2.16": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 3012,
+         "duration": 2903,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_2_16.json"
       },
       "13.2.17": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2857,
+         "duration": 6474,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_2_17.json"
       },
       "13.2.18": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2648,
+         "duration": 9928,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_2_18.json"
       },
       "13.2.2": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 395,
+         "duration": 196,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_2_2.json"
       },
       "13.2.3": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 297,
+         "duration": 199,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_2_3.json"
       },
       "13.2.4": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 262,
+         "duration": 264,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_2_4.json"
       },
       "13.2.5": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 304,
+         "duration": 356,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_2_5.json"
       },
       "13.2.6": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 377,
+         "duration": 546,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_2_6.json"
       },
       "13.2.7": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 593,
+         "duration": 627,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_2_7.json"
       },
       "13.2.8": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 900,
+         "duration": 1013,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_2_8.json"
       },
       "13.2.9": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1541,
+         "duration": 1578,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_2_9.json"
       },
       "13.3.1": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 179,
+         "duration": 937,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_3_1.json"
       },
       "13.3.10": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 13649,
+         "duration": 8754,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_3_10.json"
       },
       "13.3.11": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2059,
+         "duration": 1426,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_3_11.json"
       },
       "13.3.12": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2127,
+         "duration": 1205,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_3_12.json"
       },
       "13.3.13": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 3035,
+         "duration": 734,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_3_13.json"
       },
       "13.3.14": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 4815,
+         "duration": 1307,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_3_14.json"
       },
       "13.3.15": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 9366,
+         "duration": 2678,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_3_15.json"
       },
       "13.3.16": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 3744,
+         "duration": 2720,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_3_16.json"
       },
       "13.3.17": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2730,
+         "duration": 2832,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_3_17.json"
       },
       "13.3.18": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 3199,
+         "duration": 3465,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_3_18.json"
       },
       "13.3.2": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 265,
+         "duration": 860,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_3_2.json"
       },
       "13.3.3": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 207,
+         "duration": 1068,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_3_3.json"
       },
       "13.3.4": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 232,
+         "duration": 1062,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_3_4.json"
       },
       "13.3.5": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 328,
+         "duration": 1193,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_3_5.json"
       },
       "13.3.6": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 428,
+         "duration": 1481,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_3_6.json"
       },
       "13.3.7": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 637,
+         "duration": 2082,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_3_7.json"
       },
       "13.3.8": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1126,
+         "duration": 2824,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_3_8.json"
       },
       "13.3.9": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2767,
+         "duration": 4748,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_3_9.json"
       },
       "13.4.1": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 120,
+         "duration": 192,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_4_1.json"
       },
       "13.4.10": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2608,
+         "duration": 2635,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_4_10.json"
       },
       "13.4.11": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 349,
+         "duration": 485,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_4_11.json"
       },
       "13.4.12": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 562,
+         "duration": 690,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_4_12.json"
       },
       "13.4.13": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 698,
+         "duration": 712,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_4_13.json"
       },
       "13.4.14": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1497,
+         "duration": 1379,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_4_14.json"
       },
       "13.4.15": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2556,
+         "duration": 2922,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_4_15.json"
       },
       "13.4.16": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2734,
+         "duration": 2655,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_4_16.json"
       },
       "13.4.17": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2801,
+         "duration": 2716,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_4_17.json"
       },
       "13.4.18": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2688,
+         "duration": 2887,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_4_18.json"
       },
       "13.4.2": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 166,
+         "duration": 203,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_4_2.json"
       },
       "13.4.3": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 169,
+         "duration": 431,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_4_3.json"
       },
       "13.4.4": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 163,
+         "duration": 269,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_4_4.json"
       },
       "13.4.5": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 236,
+         "duration": 272,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_4_5.json"
       },
       "13.4.6": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 300,
+         "duration": 367,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_4_6.json"
       },
       "13.4.7": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 415,
+         "duration": 479,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_4_7.json"
       },
       "13.4.8": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 681,
+         "duration": 788,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_4_8.json"
       },
       "13.4.9": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1246,
+         "duration": 1177,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_4_9.json"
       },
       "13.5.1": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 193,
+         "duration": 192,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_5_1.json"
       },
       "13.5.10": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 4410,
+         "duration": 8297,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_5_10.json"
       },
       "13.5.11": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 477,
+         "duration": 2385,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_5_11.json"
       },
       "13.5.12": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 719,
+         "duration": 2825,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_5_12.json"
       },
       "13.5.13": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1206,
+         "duration": 3620,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_5_13.json"
       },
       "13.5.14": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 6603,
+         "duration": 5808,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_5_14.json"
       },
       "13.5.15": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 12097,
+         "duration": 10420,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_5_15.json"
       },
       "13.5.16": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 10222,
+         "duration": 9337,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_5_16.json"
       },
       "13.5.17": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 9450,
+         "duration": 2608,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_5_17.json"
       },
       "13.5.18": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2860,
+         "duration": 2830,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_5_18.json"
       },
       "13.5.2": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 200,
+         "duration": 210,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_5_2.json"
       },
       "13.5.3": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 232,
+         "duration": 227,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_5_3.json"
       },
       "13.5.4": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 288,
+         "duration": 471,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_5_4.json"
       },
       "13.5.5": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 342,
+         "duration": 367,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_5_5.json"
       },
       "13.5.6": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 444,
+         "duration": 435,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_5_6.json"
       },
       "13.5.7": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 650,
+         "duration": 652,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_5_7.json"
       },
       "13.5.8": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1086,
+         "duration": 1093,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_5_8.json"
       },
       "13.5.9": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2295,
+         "duration": 2013,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_5_9.json"
       },
       "13.6.1": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 158,
+         "duration": 154,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_6_1.json"
       },
       "13.6.10": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2660,
+         "duration": 2643,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_6_10.json"
       },
       "13.6.11": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 377,
+         "duration": 421,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_6_11.json"
       },
       "13.6.12": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 464,
+         "duration": 515,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_6_12.json"
       },
       "13.6.13": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 762,
+         "duration": 827,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_6_13.json"
       },
       "13.6.14": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1331,
+         "duration": 1417,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_6_14.json"
       },
       "13.6.15": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2639,
+         "duration": 2860,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_6_15.json"
       },
       "13.6.16": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2966,
+         "duration": 2657,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_6_16.json"
       },
       "13.6.17": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2909,
+         "duration": 2721,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_6_17.json"
       },
       "13.6.18": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2963,
+         "duration": 2797,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_6_18.json"
       },
       "13.6.2": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 127,
+         "duration": 178,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_6_2.json"
       },
       "13.6.3": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 180,
+         "duration": 186,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_6_3.json"
       },
       "13.6.4": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 177,
+         "duration": 204,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_6_4.json"
       },
       "13.6.5": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 263,
+         "duration": 246,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_6_5.json"
       },
       "13.6.6": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 299,
+         "duration": 365,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_6_6.json"
       },
       "13.6.7": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 455,
+         "duration": 475,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_6_7.json"
       },
       "13.6.8": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 652,
+         "duration": 710,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_6_8.json"
       },
       "13.6.9": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1147,
+         "duration": 1339,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_6_9.json"
       },
       "13.7.1": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 191,
+         "duration": 293,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_7_1.json"
       },
       "13.7.10": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 3693,
+         "duration": 4295,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_7_10.json"
       },
       "13.7.11": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 472,
+         "duration": 477,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_7_11.json"
       },
       "13.7.12": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 660,
+         "duration": 675,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_7_12.json"
       },
       "13.7.13": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1115,
+         "duration": 1166,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_7_13.json"
       },
       "13.7.14": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2254,
+         "duration": 2201,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_7_14.json"
       },
       "13.7.15": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 4162,
+         "duration": 14247,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_7_15.json"
       },
       "13.7.16": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 8506,
+         "duration": 10711,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_7_16.json"
       },
       "13.7.17": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 11943,
+         "duration": 9832,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_7_17.json"
       },
       "13.7.18": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 10065,
+         "duration": 6769,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_7_18.json"
       },
       "13.7.2": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 166,
+         "duration": 215,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_7_2.json"
       },
       "13.7.3": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 197,
+         "duration": 257,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_7_3.json"
       },
       "13.7.4": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 234,
+         "duration": 325,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_7_4.json"
       },
       "13.7.5": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 360,
+         "duration": 368,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_7_5.json"
       },
@@ -1494,21 +1494,21 @@
       "13.7.7": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 673,
+         "duration": 607,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_7_7.json"
       },
       "13.7.8": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 1045,
+         "duration": 1158,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_7_8.json"
       },
       "13.7.9": {
          "behavior": "OK",
          "behaviorClose": "OK",
-         "duration": 2146,
+         "duration": 2081,
          "remoteCloseCode": 1000,
          "reportfile": "nwws_case_13_7_9.json"
       }
