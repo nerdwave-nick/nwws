@@ -39,6 +39,11 @@
 // pings by itself. Keep calling Read while the connection is open: control
 // frames are processed only while no message waits for Read.
 //
+// A connection pings its peer every 10 seconds and closes when no answer
+// arrives within 30 seconds of a ping; [ConnOptions] changes both or turns
+// liveness off, and [Conn.RTT] reports the last round-trip time. The
+// timeout is suspended while a message waits for Read.
+//
 // When a connection ends, Read reports why with a [*CloseError], which
 // holds the peer's close code and reason, or StatusAbnormalClosure when
 // the connection was lost without a close frame. A peer that violates the

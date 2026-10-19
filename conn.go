@@ -77,6 +77,8 @@ type Conn struct {
 
 	errMu sync.Mutex
 	err   error // why the connection ended, guarded by errMu
+
+	live *liveness // pings and the pong timeout; nil when off
 }
 
 // newConn wraps nc, a connection after the opening handshake, and starts
@@ -97,10 +99,12 @@ func newConn(nc net.Conn, server bool, subprotocol string, cfg connConfig) *Conn
 		discard:     make(chan struct{}),
 		closed:      make(chan struct{}),
 	}
-	c.fr = frameReader{r: bufio.NewReader(nc), server: server}
+	c.live = newLiveness(c)
+	c.fr = frameReader{r: bufio.NewReader(c.live.reader(nc)), server: server}
 	c.fw = frameWriter{w: c.bw, server: server}
 	go c.readLoop()
 	go c.writeLoop()
+	c.live.start()
 	return c
 }
 
@@ -170,8 +174,9 @@ func (c *Conn) endErr() error {
 	return c.err
 }
 
-// wait waits for the read and write goroutines to end.
+// wait waits for the goroutines of the connection to end.
 func (c *Conn) wait() {
 	<-c.readDone
 	<-c.writeDone
+	c.live.wait()
 }
