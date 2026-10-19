@@ -127,7 +127,8 @@ For `wss://` with a private CA or client certificates (mutual TLS), set
 ## Autobahn conformance gate
 
 The [Autobahn test suite](https://github.com/crossbario/autobahn-testsuite)
-tests the nwws server and client in Docker:
+tests the nwws server and client in Docker: every section without
+compression, and sections 12 and 13 with permessage-deflate on both sides:
 
 ```sh
 ./autobahn/run.sh
@@ -137,3 +138,37 @@ The script exits non-zero unless every case passes. `go test ./...` does
 not run the suite and needs no Docker. See
 [autobahn/README.md](autobahn/README.md) for what passing means, the
 NON-STRICT cases and their reasons, and the committed report summaries.
+
+## Compression
+
+nwws supports the permessage-deflate extension
+([RFC 7692](https://www.rfc-editor.org/rfc/rfc7692)) on `compress/flate`.
+It is **off by default**. Set `ConnOptions.Compression` on both sides to
+enable it; it is negotiated in the opening handshake only when both sides
+enable it, and the connection stays uncompressed otherwise.
+
+```go
+opts := &nwws.AcceptOptions{
+	ConnOptions: nwws.ConnOptions{Compression: &nwws.CompressionOptions{}},
+}
+```
+
+| `CompressionOptions` field | Effect |
+| --- | --- |
+| `Threshold` | Messages shorter than this many bytes are sent uncompressed. The default is `DefaultCompressionThreshold` (128). |
+| `ServerNoContextTakeover` | The server compresses each message on its own (`server_no_context_takeover`), which saves memory at the cost of ratio. |
+| `ClientNoContextTakeover` | The same for the client (`client_no_context_takeover`). |
+
+- **Context takeover** is used in both directions unless either side asks
+  for no context takeover. It compresses small, similar messages far
+  better, and costs a compressor and a 32 KiB window per connection.
+- **Window size.** `compress/flate` always compresses with a 32 KiB window.
+  If the peer limits nwws's window to fewer than 15 bits
+  (`server_max_window_bits` or `client_max_window_bits`), nwws accepts and
+  compresses with Huffman coding only, which uses no window. Decompression
+  accepts any window up to 15 bits.
+- **Read limit.** `ReadLimit` applies to the decompressed size, and also to
+  the compressed size. Decompression stops as soon as a message exceeds it,
+  so a small compressed message cannot inflate into a large allocation.
+- Compressed messages that do not decompress close the connection with
+  1007, like invalid UTF-8.
