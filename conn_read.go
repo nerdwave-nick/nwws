@@ -47,6 +47,12 @@ func protocolErrorf(code StatusCode, format string, args ...any) *protocolError 
 // peer's close code and reason, a *CloseError with StatusAbnormalClosure
 // when the connection was lost without a close frame, or another error
 // when this side failed the connection.
+//
+// A protocol violation by the peer is reported in order, after the
+// messages received before it, and its close frame is queued before Read
+// returns, so it follows what the application wrote in reply to those
+// messages. If Read is not called within the close timeout, the connection
+// is failed anyway.
 func (c *Conn) Read(ctx context.Context) (MessageType, []byte, error) {
 	select {
 	case m, ok := <-c.msgs:
