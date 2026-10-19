@@ -45,6 +45,11 @@
 // liveness off, and [Conn.RTT] reports the last round-trip time. The
 // timeout is suspended while the read-ahead budget is full.
 //
+// Close runs the closing handshake, waiting for the peer at most
+// [ConnOptions.CloseTimeout], 5 seconds by default, per step; data the
+// peer sends meanwhile is skipped without allocating. [Conn.CloseNow]
+// closes the network connection at once, without the handshake.
+//
 // When a connection ends, Read reports why with a [*CloseError], which
 // holds the peer's close code and reason, or StatusAbnormalClosure when
 // the connection was lost without a close frame. A peer that violates the
