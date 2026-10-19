@@ -249,8 +249,16 @@ opts := &nwws.AcceptOptions{
   (`server_max_window_bits` or `client_max_window_bits`), nwws accepts and
   compresses with Huffman coding only, which uses no window. Decompression
   accepts any window up to 15 bits.
-- **Read limit.** `ReadLimit` applies to the decompressed size, and also to
-  the compressed size. Decompression stops as soon as a message exceeds it,
-  so a small compressed message cannot inflate into a large allocation.
-- Compressed messages that do not decompress close the connection with
-  1007, like invalid UTF-8.
+- **Streaming decompression.** A compressed message is decompressed as its
+  frames arrive, without buffering its compressed form. Pings between its
+  frames are answered meanwhile.
+- **Read limit.** `ReadLimit` applies to the decompressed size only, so an
+  incompressible message up to the limit is read although its compressed
+  form is slightly larger. Decompression stops as soon as a message exceeds
+  the limit, which closes the connection with 1009, so a small compressed
+  message cannot inflate into a large allocation.
+- **Invalid data.** Compressed data that does not decompress closes the
+  connection with 1007, as does compressed text that is not UTF-8. Both
+  fail as soon as the decompressed output shows it, without waiting for the
+  rest of the message. The decompressor emits output at least at every
+  flush and every 32 KiB.
