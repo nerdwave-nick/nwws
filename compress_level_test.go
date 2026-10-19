@@ -365,7 +365,7 @@ func BenchmarkDeflateRetainedMemory(b *testing.B) {
 // on BenchmarkDeflateRetainedMemory.
 func retainedPerConn(b *testing.B, level int, msg []byte) float64 {
 	const pairs = 32
-	cfg := connConfig{readLimit: DefaultReadLimit, closeTimeout: defaultCloseTimeout}
+	cfg := connConfig{readLimit: DefaultReadLimit, closeTimeout: DefaultCloseTimeout}
 	if level >= 0 {
 		cfg.deflate = &deflateConfig{threshold: 1, level: level, writeTakeover: true, writeWindowBits: maxWindowBits, readTakeover: true}
 	}

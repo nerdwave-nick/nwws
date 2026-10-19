@@ -1,7 +1,10 @@
 # nwws
 
+[![CI](https://github.com/nerdwave-nick/nwws/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nerdwave-nick/nwws/actions/workflows/ci.yml)
+
 A WebSocket ([RFC 6455](https://www.rfc-editor.org/rfc/rfc6455)) client and
-server for Go, built only on the standard library.
+server for Go, built only on the standard library. Released under the
+[MIT License](LICENSE).
 
 ```sh
 go get github.com/nerdwave-nick/nwws
@@ -16,10 +19,11 @@ go get github.com/nerdwave-nick/nwws
 | `(*Conn).Read(ctx) (MessageType, []byte, error)` | Returns the next whole message. Cancelling `ctx` returns early and leaves the connection usable. |
 | `(*Conn).Write(ctx, MessageType, []byte) error` | Sends a whole message and returns once it is on the network. Any goroutine may write. |
 | `(*Conn).Close(StatusCode, reason) error` | Runs the closing handshake: it sends a close frame, waits a bounded time for the peer's, then closes TCP. |
+| `(*Conn).CloseNow() error` | Closes TCP at once, without the closing handshake. See [Closing](#closing). |
 | `(*Conn).Subprotocol() string` | Returns the subprotocol agreed in the handshake. |
 | `MessageBinary`, `MessageText` | The message types. Text must be valid UTF-8 on both read and write. |
 | `CloseError` | Reports how a connection ended: the peer's close code and reason, or `StatusAbnormalClosure` (1006) if it was lost. |
-| `ErrClosed` | Write and Close return it once the connection is closing. |
+| `ErrClosed` | Write and Close return it once the connection is closing, and Read and Write after `CloseNow`. |
 | `ConnOptions` | The connection options, embedded in `AcceptOptions` and `DialOptions`. |
 
 ### Connection behaviour
@@ -49,7 +53,7 @@ go get github.com/nerdwave-nick/nwws
   3000–4999. Codes 4000–4999 are for applications. Any other code from a
   peer is answered with 1002.
 - **Close timeout.** Each wait in the closing handshake is bounded by
-  5 seconds.
+  `ConnOptions.CloseTimeout` (default `DefaultCloseTimeout`, 5 seconds).
 
 ## Echo server
 
@@ -244,6 +248,51 @@ budget.
 c, err := nwws.Accept(w, r, &nwws.AcceptOptions{
 	ConnOptions: nwws.ConnOptions{ReadBuffer: 4 << 20}, // 4 MiB of read-ahead
 })
+```
+
+## Closing
+
+- **`Close(code, reason)`** runs the closing handshake. It sends a close
+  frame after the messages already queued, waits for the peer's close
+  frame and closes TCP. A client then waits for the server to close TCP
+  first (RFC 6455 §7.1.1).
+- **Close timeout.** `ConnOptions.CloseTimeout` bounds each of those
+  waits; zero or less means `DefaultCloseTimeout` (5 s). It also bounds
+  the handshake the connection completes by itself when the peer closes
+  or violates the protocol, on the server and the client.
+- **No allocation for incoming data while closing.** Once `Close` has started, messages
+  read ahead are dropped, and data frames that still arrive are skipped
+  unread, without allocating; control frames are still handled, so the
+  peer's close frame ends the wait. A peer flooding 1 MiB messages during
+  `Close` causes a few kilobytes of allocation, not one allocation per
+  message. Only a message already being read when `Close` starts is read
+  to its end.
+- **`CloseNow()`** closes TCP at once, without a close frame, and waits for
+  the connection's goroutines to end. A pending `Read` or `Write`, and any
+  later one, returns `ErrClosed`, unless the connection had already ended
+  for another reason, which it reports instead. Queued messages are
+  dropped. A `Close` in progress returns early with an error.
+- **Any goroutine, any number of times.** `CloseNow` returns nil from the
+  call that closed the connection and `ErrClosed` from every other call,
+  also during or after `Close`.
+
+```go
+// Give a slow peer one second for the closing handshake.
+c, err := nwws.Accept(w, r, &nwws.AcceptOptions{
+	ConnOptions: nwws.ConnOptions{CloseTimeout: time.Second},
+})
+// ...
+if err := c.Close(nwws.StatusGoingAway, "shutting down"); err != nil {
+	log.Printf("close: %v", err) // the peer did not answer in time
+}
+```
+
+```go
+// Abort at once, for example when the server shuts down.
+go func() {
+	<-ctx.Done()
+	_ = c.CloseNow()
+}()
 ```
 
 ## Autobahn conformance gate

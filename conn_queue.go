@@ -82,7 +82,7 @@ const (
 // budget.
 func (c *Conn) pushMessage(m message) (more bool) {
 	c.rmu.Lock()
-	if c.discarding {
+	if c.discarding.Load() {
 		c.rmu.Unlock()
 		return true
 	}
@@ -131,7 +131,7 @@ func (c *Conn) awaitRead(want int, t <-chan time.Time) bool {
 // The caller holds rmu.
 func (c *Conn) waitDone(want int) bool {
 	switch {
-	case c.discarding:
+	case c.discarding.Load():
 		return true
 	case want == waitRoom:
 		return c.rq.fits(c.cfg.readBuffer)
@@ -199,7 +199,7 @@ func (c *Conn) endMessages() {
 func (c *Conn) discardMessages() {
 	c.rmu.Lock()
 	defer c.rmu.Unlock()
-	c.discarding = true
+	c.discarding.Store(true)
 	c.rq.clear()
 	if c.rwait != waitNone {
 		c.rwait = waitNone

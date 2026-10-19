@@ -46,8 +46,8 @@ func protocolErrorf(code StatusCode, format string, args ...any) *protocolError 
 //
 // Once the connection has ended, Read returns why: a *[CloseError] with the
 // peer's close code and reason, a *CloseError with StatusAbnormalClosure
-// when the connection was lost without a close frame, or another error
-// when this side failed the connection.
+// when the connection was lost without a close frame, ErrClosed after
+// [Conn.CloseNow], or another error when this side failed the connection.
 //
 // A protocol violation by the peer is reported in order, after the
 // messages received before it, and its close frame is queued before Read
@@ -153,6 +153,14 @@ func (c *Conn) readMessages() error {
 			return protocolErrorf(StatusProtocolError, "continuation frame without a message to continue")
 		case h.opcode != opContinuation && inMsg:
 			return protocolErrorf(StatusProtocolError, "new message before the previous one finished")
+		case c.discarding.Load():
+			// Close has started: data is dropped unread, so it takes no
+			// memory, and control frames are still handled.
+			if err := c.skipPayload(h.length); err != nil {
+				return err
+			}
+			msg, inMsg = nil, !h.fin
+			continue
 		case h.rsv&rsv1Bit != 0:
 			// The first frame of a compressed message (RFC 7692 §6.1):
 			// the message is decompressed as its frames arrive.
