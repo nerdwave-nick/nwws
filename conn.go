@@ -67,7 +67,7 @@ type Conn struct {
 
 	wmu     sync.Mutex
 	queue   []*writeReq // data and close frames in order, guarded by wmu
-	pong    *writeReq   // the pong to send first, guarded by wmu
+	pongs   []*writeReq // pongs to send first, oldest first, guarded by wmu
 	wclosed bool        // no more frames are accepted, guarded by wmu
 
 	discard     chan struct{} // closed by Close: unread messages are dropped

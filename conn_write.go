@@ -10,6 +10,10 @@ import (
 // queued together go out in one network write up to this size.
 const writeBufferSize = 16 << 10
 
+// maxPendingPongs bounds the pongs waiting for the writer. Beyond it, the
+// oldest unanswered pings go unanswered.
+const maxPendingPongs = 16
+
 // writeReq is a frame queued for the write goroutine.
 type writeReq struct {
 	op      opcode
@@ -85,19 +89,19 @@ func (c *Conn) queueClose(payload []byte) (*writeReq, error) {
 	return req, c.enqueue(req)
 }
 
-// queuePong queues a pong answering a ping with payload. Only the latest
-// unanswered ping is answered (RFC 6455 §5.5.3), which bounds the queue.
+// queuePong queues a pong answering a ping with payload. Every ping is
+// answered, up to maxPendingPongs waiting for the writer; beyond that the
+// oldest is dropped, as only the latest must be answered (RFC 6455 §5.5.3).
 func (c *Conn) queuePong(payload []byte) {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
 	if c.wclosed {
 		return
 	}
-	if c.pong != nil {
-		c.pong.payload = payload
-		return
+	if len(c.pongs) == maxPendingPongs {
+		c.pongs = append(c.pongs[:0], c.pongs[1:]...)
 	}
-	c.pong = &writeReq{op: opPong, payload: payload}
+	c.pongs = append(c.pongs, &writeReq{op: opPong, payload: payload})
 	c.signal()
 }
 
@@ -161,15 +165,14 @@ func (c *Conn) writeLoop() {
 	}
 }
 
-// takeBatch takes every queued frame, the pending pong first.
+// takeBatch takes every queued frame, the pending pongs first.
 func (c *Conn) takeBatch() []*writeReq {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
-	batch := make([]*writeReq, 0, len(c.queue)+1)
-	if c.pong != nil {
-		batch = append(batch, c.pong)
-		c.pong = nil
-	}
+	batch := make([]*writeReq, 0, len(c.pongs)+len(c.queue))
+	batch = append(batch, c.pongs...)
+	clear(c.pongs)
+	c.pongs = c.pongs[:0]
 	batch = append(batch, c.queue...)
 	clear(c.queue)
 	c.queue = c.queue[:0]
@@ -198,5 +201,5 @@ func (c *Conn) failQueued() {
 			r.done <- ErrClosed
 		}
 	}
-	c.queue, c.pong = nil, nil
+	c.queue, c.pongs = nil, nil
 }
