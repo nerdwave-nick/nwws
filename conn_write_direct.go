@@ -68,7 +68,7 @@ func (c *Conn) writeDirect(ctx context.Context, op opcode, p []byte) error {
 		return ctx.Err()
 	}
 	if err != nil {
-		err = &CloseError{Code: StatusAbnormalClosure, err: err}
+		err = c.writeErr(err) // ErrClosed if this side closed the connection
 		c.closeNow(err)
 		return err
 	}

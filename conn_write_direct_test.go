@@ -5,7 +5,9 @@ import (
 	"errors"
 	"io"
 	"net"
+	"runtime"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -73,7 +75,10 @@ func TestWriteQueuedBehindDirectWrite(t *testing.T) {
 
 // Concurrent writers, the peer's pings and Close: frames never interleave,
 // the close frame goes last, and Writes after it fail with ErrClosed.
+// The writers yield after each message and stop after maxPerWriter, so
+// they cannot run megabytes ahead of the peer on a single P.
 func TestWriteConcurrentWithClose(t *testing.T) {
+	const maxPerWriter = 1000
 	for _, server := range []bool{true, false} {
 		t.Run(map[bool]string{true: "server", false: "client"}[server], func(t *testing.T) {
 			c, peer := startConn(t, server, testConfig())
@@ -83,8 +88,8 @@ func TestWriteConcurrentWithClose(t *testing.T) {
 			for w := range writers {
 				wg.Go(func() {
 					<-start
-					msg := make([]byte, 10+w*500)
-					for {
+					msg := make([]byte, 10+w*50)
+					for range maxPerWriter {
 						err := c.Write(t.Context(), MessageBinary, msg)
 						if errors.Is(err, ErrClosed) {
 							return
@@ -93,6 +98,7 @@ func TestWriteConcurrentWithClose(t *testing.T) {
 							t.Errorf("Write: %v", err)
 							return
 						}
+						runtime.Gosched()
 					}
 				})
 			}
@@ -116,7 +122,7 @@ func TestWriteConcurrentWithClose(t *testing.T) {
 				h, b := peer.recv()
 				switch h.opcode {
 				case opBinary:
-					if !h.fin || (len(b)-10)%500 != 0 {
+					if !h.fin || (len(b)-10)%50 != 0 {
 						t.Fatalf("data frame fin %v of %d bytes", h.fin, len(b))
 					}
 					data++
@@ -131,7 +137,7 @@ func TestWriteConcurrentWithClose(t *testing.T) {
 					t.Fatalf("unexpected opcode %d", h.opcode)
 				}
 			}
-			wg.Wait() // every writer has seen ErrClosed
+			wg.Wait() // every writer has seen ErrClosed or written all its messages
 			<-pinged
 			peer.send(true, opClose, closePayload(StatusNormalClosure, ""))
 			if !server {
@@ -149,4 +155,58 @@ func TestWriteConcurrentWithClose(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A direct write cut short by this side's CloseNow or Close returns
+// ErrClosed; one that fails because the peer is gone returns
+// StatusAbnormalClosure.
+func TestDirectWriteFailures(t *testing.T) {
+	// startHeld starts a direct write that stays in its network write.
+	startHeld := func(t *testing.T, cfg connConfig) (*Conn, <-chan error) {
+		s, _ := tcpPair(t)
+		g := newGateConn(s)
+		c := newConn(g, true, "", cfg)
+		t.Cleanup(func() {
+			c.closeNow(ErrClosed)
+			c.wait()
+		})
+		written := make(chan error, 1)
+		go func() { written <- c.Write(t.Context(), MessageBinary, []byte("held")) }()
+		waitEntered(t, g)
+		return c, written
+	}
+
+	t.Run("CloseNow", func(t *testing.T) {
+		c, written := startHeld(t, testConfig())
+		if err := c.CloseNow(); err != nil {
+			t.Fatalf("CloseNow = %v", err)
+		}
+		if err := waitErr(t, written); !errors.Is(err, ErrClosed) {
+			t.Fatalf("Write = %v, want ErrClosed", err)
+		}
+	})
+
+	t.Run("Close", func(t *testing.T) {
+		c, written := startHeld(t, closeTimeoutConfig(50*time.Millisecond))
+		if err := c.Close(StatusNormalClosure, ""); err == nil {
+			t.Fatal("Close = nil, want a timeout: the close frame waits behind the held write")
+		}
+		if err := waitErr(t, written); !errors.Is(err, ErrClosed) {
+			t.Fatalf("Write = %v, want ErrClosed", err)
+		}
+	})
+
+	t.Run("peer gone", func(t *testing.T) {
+		s, _ := tcpPair(t)
+		c := newConn(brokenConn{s}, true, "", testConfig())
+		t.Cleanup(func() {
+			c.closeNow(ErrClosed)
+			c.wait()
+		})
+		err := c.Write(t.Context(), MessageBinary, []byte("lost"))
+		var ce *CloseError
+		if !errors.As(err, &ce) || ce.Code != StatusAbnormalClosure || !errors.Is(err, syscall.EPIPE) {
+			t.Fatalf("Write = %v, want CloseError 1006 wrapping EPIPE", err)
+		}
+	})
 }
