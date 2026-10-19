@@ -166,6 +166,7 @@ func (c *Conn) writeLoop() {
 	t := c.live.timer()
 	if t != nil {
 		defer t.Stop()
+		defer c.live.stopWatch()
 		tick = t.C
 	}
 	var batch []*writeReq

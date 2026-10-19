@@ -24,10 +24,20 @@ func TestLivenessTimeoutFrozenPeerQueuedWrite(t *testing.T) {
 	c := newConn(g, true, "", liveConfig(interval, timeout))
 	first := make(chan error, 1)
 	go func() { first <- c.Write(t.Context(), MessageBinary, []byte("first")) }()
-	waitEntered(t, g) // the direct write is held
+	waitEntered(t, g) // the first network write is held: this Write, or a ping
+	const large = 16 << 20
 	queued := make(chan error, 1)
-	go func() { queued <- c.Write(t.Context(), MessageBinary, make([]byte, 16<<20)) }()
-	waitQueued(t, c, 1)
+	go func() { queued <- c.Write(t.Context(), MessageBinary, make([]byte, large)) }()
+	waitFor(t, "the large message to be queued", func() bool {
+		c.wmu.Lock()
+		defer c.wmu.Unlock()
+		for _, r := range c.queue {
+			if len(r.payload) == large {
+				return true
+			}
+		}
+		return false
+	})
 	start := time.Now()
 	close(g.release) // the write goroutine takes the large message and blocks
 
@@ -37,9 +47,7 @@ func TestLivenessTimeoutFrozenPeerQueuedWrite(t *testing.T) {
 	if limit := interval + timeout + livenessCloseWait + slack; elapsed > limit {
 		t.Fatalf("detected after %v, want at most %v", elapsed, limit)
 	}
-	if err := waitErr(t, first); err != nil {
-		t.Fatalf("first Write: %v", err)
-	}
+	_ = waitErr(t, first) // it may end with the connection
 	if err := waitErr(t, queued); err == nil {
 		t.Fatal("the blocked Write succeeded")
 	}

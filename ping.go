@@ -63,6 +63,7 @@ type liveness struct {
 	rtt      time.Duration // the last measured round-trip time
 	batch    bool          // the write goroutine is writing a batch
 	watch    *time.Timer   // ticks while batch is set; nil until the first batch
+	watchAt  time.Time     // when watch fires; zero when it is not armed
 }
 
 // newLiveness returns the liveness of c, or nil when it is off.

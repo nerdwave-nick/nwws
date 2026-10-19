@@ -57,8 +57,9 @@ func (l *liveness) due(now time.Time) time.Duration {
 
 // guard keeps liveness ticking while the write goroutine writes a batch:
 // a peer that reads nothing can block that write, and the liveness timeout
-// is what ends it. The watch timer ticks until unguard; it is a goroutine
-// only while it fires.
+// is what ends it. The watch timer then ticks in the write goroutine's
+// place; it is a goroutine only while it fires. Once armed, it stays armed
+// across batches until it fires, so a busy writer rarely touches it.
 func (l *liveness) guard() {
 	if l == nil {
 		return
@@ -66,15 +67,21 @@ func (l *liveness) guard() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.batch = true
-	d := l.due(time.Now())
+	now := time.Now()
+	at := now.Add(l.due(now))
+	if !l.watchAt.IsZero() && !l.watchAt.After(at) {
+		return // armed early enough
+	}
+	l.watchAt = at
 	if l.watch == nil {
-		l.watch = time.AfterFunc(d, l.watchFired)
+		l.watch = time.AfterFunc(at.Sub(now), l.watchFired)
 		return
 	}
-	l.watch.Reset(d)
+	l.watch.Reset(at.Sub(now))
 }
 
-// unguard stops the watch timer once the batch is written.
+// unguard ends the watch once the batch is written. The timer is left to
+// fire, and then does nothing.
 func (l *liveness) unguard() {
 	if l == nil {
 		return
@@ -82,24 +89,39 @@ func (l *liveness) unguard() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.batch = false
+}
+
+// stopWatch stops the watch timer when the write goroutine ends.
+func (l *liveness) stopWatch() {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.watch != nil {
 		l.watch.Stop()
 	}
+	l.watchAt = time.Time{}
 }
 
 func (l *liveness) watchFired() {
 	l.mu.Lock()
-	batch := l.batch
-	l.mu.Unlock()
-	if !batch {
+	if !l.batch {
+		l.watchAt = time.Time{}
+		l.mu.Unlock()
 		return
 	}
-	d, ok := l.tick(time.Now())
+	l.mu.Unlock()
+	now := time.Now()
+	d, ok := l.tick(now)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if ok && l.batch {
+		l.watchAt = now.Add(d)
 		l.watch.Reset(d)
+		return
 	}
+	l.watchAt = time.Time{}
 }
 
 // closeWritten closes the connection once the close frame of a liveness
