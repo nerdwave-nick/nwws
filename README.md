@@ -1,7 +1,10 @@
 # nwws
 
+[![CI](https://github.com/nerdwave-nick/nwws/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nerdwave-nick/nwws/actions/workflows/ci.yml)
+
 A WebSocket ([RFC 6455](https://www.rfc-editor.org/rfc/rfc6455)) client and
-server for Go, built only on the standard library.
+server for Go, built only on the standard library. Released under the
+[MIT License](LICENSE).
 
 ```sh
 go get github.com/nerdwave-nick/nwws
