@@ -121,8 +121,33 @@ func main() {
 }
 ```
 
-For `wss://` with a private CA or client certificates (mutual TLS), set
-`DialOptions.TLSConfig`.
+## Dialing and origins
+
+- **TLS.** For `wss://` with a private CA or client certificates (mutual
+  TLS), set `DialOptions.TLSConfig`. It is cloned, never modified. The
+  client always offers ALPN `http/1.1` only, whatever `NextProtos` holds,
+  because the upgrade needs HTTP/1.1 and a server offered `h2` might pick it.
+- **Custom dialer.** `DialOptions.NetDialContext` replaces the default
+  `net.Dialer`. It receives `Dial`'s context, network `tcp` and the URL's
+  host and port, and may connect anywhere: a Unix socket, a proxy of the
+  caller's, or TCP with a custom keepalive. For `wss://`, TLS runs on top of
+  the connection it returns. nwws has no built-in proxy support.
+- **Origin check.** By default, `Accept` accepts requests without an
+  `Origin` header and rejects those whose origin host or port differs from
+  the request's `Host` (403). Hosts compare case-insensitively, and a
+  missing port is the default port of the origin's scheme: 80 for
+  `http`/`ws`, 443 for `https`/`wss`. So `https://a` matches `Host: a:443`,
+  but `https://a:8443` does not match `Host: a`. Set
+  `AcceptOptions.CheckOrigin` to decide yourself.
+
+```go
+c, _, err := nwws.Dial(ctx, "ws://vox-caster/feed", &nwws.DialOptions{
+	NetDialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		var d net.Dialer
+		return d.DialContext(ctx, "unix", "/run/vox-caster.sock")
+	},
+})
+```
 
 ## Liveness
 
