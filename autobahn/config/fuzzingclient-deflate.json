@@ -1,0 +1,12 @@
+{
+  "outdir": "/reports/server-deflate",
+  "servers": [
+    {
+      "agent": "nwws",
+      "url": "ws://127.0.0.1:9703"
+    }
+  ],
+  "cases": ["12.*", "13.*"],
+  "exclude-cases": [],
+  "exclude-agent-cases": {}
+}
