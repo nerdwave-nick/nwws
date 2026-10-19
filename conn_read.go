@@ -153,7 +153,12 @@ func (c *Conn) readMessages() error {
 			typ, inMsg, text = h.opcode, true, utf8Validator{}
 			dfl = h.rsv&rsv1Bit != 0
 		}
-		if msg, err = c.readPayload(msg, h, int(limit)); err != nil {
+		if typ == opText && !dfl {
+			msg, err = c.readTextPayload(msg, h, int(limit), &text)
+		} else {
+			msg, err = c.readPayload(msg, h, int(limit))
+		}
+		if err != nil {
 			return err
 		}
 		if dfl {
