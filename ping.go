@@ -38,10 +38,11 @@ func (c *Conn) RTT() time.Duration {
 // within the timeout. Any data received proves the peer alive, not only
 // the pong: a pong may wait behind a large frame on a slow link.
 //
-// While a complete message waits for Read, the read goroutine reads no
-// frames and cannot see the peer's pongs. The timeout is suspended then,
-// and restarts in full when Read takes the message, so a slow application
-// never makes a live peer time out.
+// While the read goroutine waits for Read, because the read-ahead budget
+// is full or a violation waits to be reported, it reads no frames and
+// cannot see the peer's pongs. The timeout is suspended then, and restarts
+// in full when Read makes room, so a slow application never makes a live
+// peer time out.
 type liveness struct {
 	c        *Conn
 	interval time.Duration
@@ -50,7 +51,7 @@ type liveness struct {
 
 	mu      sync.Mutex
 	waiting time.Time     // when the ping awaiting a sign of life was queued; zero if none
-	held    bool          // a complete message waits for Read
+	held    bool          // reading has stopped until Read makes room
 	queued  bool          // a ping waits for the write goroutine
 	seq     uint64        // payload of the latest ping
 	sentAt  time.Time     // when the latest ping was written; zero once answered
@@ -115,9 +116,9 @@ func (l *liveness) expired(now time.Time) bool {
 	return !l.held && !l.waiting.IsZero() && now.Sub(l.waiting) >= l.timeout
 }
 
-// untilExpiry returns how long until the timeout may expire. While a
-// message is held, the timeout restarts in full once Read takes it, so it
-// cannot expire sooner than a full timeout from now.
+// untilExpiry returns how long until the timeout may expire. While
+// reading is held, the timeout restarts in full once Read makes room, so
+// it cannot expire sooner than a full timeout from now.
 func (l *liveness) untilExpiry(now time.Time) time.Duration {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -183,7 +184,7 @@ func (l *liveness) alive() {
 	l.waiting = time.Time{}
 }
 
-// hold suspends the timeout while a message waits for Read.
+// hold suspends the timeout while reading stops until Read makes room.
 func (l *liveness) hold() {
 	if l == nil {
 		return
@@ -193,9 +194,9 @@ func (l *liveness) hold() {
 	l.held = true
 }
 
-// resume restarts the timeout once Read has taken the held message. A pong
-// read now may have waited during the hold, so the pending ping no longer
-// measures the RTT.
+// resume restarts the timeout once Read has made room. A pong read now may
+// have waited during the hold, so the pending ping no longer measures the
+// RTT.
 func (l *liveness) resume() {
 	if l == nil {
 		return

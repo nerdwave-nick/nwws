@@ -39,9 +39,11 @@ var ErrClosed = errors.New("nwws: connection closed")
 // Write and Close may be called from any goroutine.
 //
 // A goroutine of the connection reads frames: it reassembles messages,
-// answers pings and takes part in the closing handshake. It holds each
-// complete message until Read takes it, and reads no further frames
-// meanwhile, so keep calling Read for as long as the connection is in use.
+// answers pings and takes part in the closing handshake. It queues
+// complete messages for Read and keeps reading while they take less than
+// the read-ahead budget, [ConnOptions.ReadBuffer]. Once the budget is
+// full, it reads no further frames until Read makes room, so keep calling
+// Read for as long as the connection is in use.
 //
 // Another goroutine writes every frame, so concurrent writers never
 // interleave. Messages queued while a write is in progress are sent
@@ -55,7 +57,6 @@ type Conn struct {
 	// Read side, owned by readLoop.
 	fr        frameReader
 	inflate   *inflater     // decompresses messages; nil without compression
-	msgs      chan message  // complete messages for Read; closed when readLoop ends
 	closeRcvd chan struct{} // closed when the peer's close frame arrives
 	readDone  chan struct{}
 
@@ -72,10 +73,18 @@ type Conn struct {
 	pongs   []*writeReq // pongs to send first, oldest first, guarded by wmu
 	wclosed bool        // no more frames are accepted, guarded by wmu
 
-	discard     chan struct{} // closed by Close: unread messages are dropped
-	discardOnce sync.Once
-	closed      chan struct{} // closed with the network connection
-	closeOnce   sync.Once
+	// Complete messages read ahead for Read, guarded by rmu.
+	rmu        sync.Mutex
+	rq         msgQueue
+	readers    int           // Reads waiting for a message
+	rwait      int           // waitNone, or what readLoop waits for Read to do
+	rend       bool          // readLoop queues no more messages
+	discarding bool          // Close has started: messages are dropped
+	avail      chan struct{} // wakes a waiting Read; buffered
+	room       chan struct{} // wakes readLoop waiting for Read; buffered
+
+	closed    chan struct{} // closed with the network connection
+	closeOnce sync.Once
 
 	errMu sync.Mutex
 	err   error // why the connection ended, guarded by errMu
@@ -86,19 +95,22 @@ type Conn struct {
 // newConn wraps nc, a connection after the opening handshake, and starts
 // its read and write goroutines.
 func newConn(nc net.Conn, server bool, subprotocol string, cfg connConfig) *Conn {
+	if cfg.readBuffer <= 0 {
+		cfg.readBuffer = DefaultReadBuffer
+	}
 	c := &Conn{
 		nc:          nc,
 		server:      server,
 		subprotocol: subprotocol,
 		cfg:         cfg,
-		msgs:        make(chan message),
 		closeRcvd:   make(chan struct{}),
 		readDone:    make(chan struct{}),
 		bw:          bufio.NewWriterSize(nc, writeBufferSize),
 		wake:        make(chan struct{}, 1),
 		closeSent:   make(chan struct{}),
 		writeDone:   make(chan struct{}),
-		discard:     make(chan struct{}),
+		avail:       make(chan struct{}, 1),
+		room:        make(chan struct{}, 1),
 		closed:      make(chan struct{}),
 	}
 	c.live = newLiveness(c)

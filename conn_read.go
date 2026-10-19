@@ -54,21 +54,17 @@ func protocolErrorf(code StatusCode, format string, args ...any) *protocolError 
 // messages. If Read is not called within the close timeout, the connection
 // is failed anyway.
 func (c *Conn) Read(ctx context.Context) (MessageType, []byte, error) {
-	select {
-	case m, ok := <-c.msgs:
-		if !ok {
-			return 0, nil, c.endErr()
-		}
-		if m.fail != nil {
-			// Queue the failure's close frame before Read returns, so a
-			// Close called after Read cannot replace its code.
-			_, _ = c.queueClose(closePayload(m.fail.code, ""))
-			return 0, nil, m.fail
-		}
-		return m.typ, m.data, nil
-	case <-ctx.Done():
-		return 0, nil, ctx.Err()
+	m, err := c.next(ctx)
+	switch {
+	case err != nil:
+		return 0, nil, err
+	case m.fail != nil:
+		// Queue the failure's close frame before Read returns, so a
+		// Close called after Read cannot replace its code.
+		_, _ = c.queueClose(closePayload(m.fail.code, ""))
+		return 0, nil, m.fail
 	}
+	return m.typ, m.data, nil
 }
 
 // readLoop reads frames until the connection ends, records why so that
@@ -101,7 +97,7 @@ func (c *Conn) readLoop() {
 		c.deliverFailure(pe)
 		_, _ = c.queueClose(closePayload(pe.code, ""))
 	}
-	close(c.msgs)
+	c.endMessages()
 
 	switch {
 	case peerClosed:
