@@ -55,17 +55,27 @@ func protocolErrorf(code StatusCode, format string, args ...any) *protocolError 
 // messages. If Read is not called within the close timeout, the connection
 // is failed anyway.
 func (c *Conn) Read(ctx context.Context) (MessageType, []byte, error) {
+	m, err := c.nextData(ctx)
+	if err != nil {
+		return 0, nil, err
+	}
+	return m.typ, owned(m.data), nil
+}
+
+// nextData returns the next data message for Read and ReadInto, or why
+// there is none. A violation is returned as the error.
+func (c *Conn) nextData(ctx context.Context) (message, error) {
 	m, err := c.next(ctx)
 	switch {
 	case err != nil:
-		return 0, nil, err
+		return message{}, err
 	case m.fail != nil:
 		// Queue the failure's close frame before Read returns, so a
 		// Close called after Read cannot replace its code.
 		_, _ = c.queueClose(closePayload(m.fail.code, ""))
-		return 0, nil, m.fail
+		return message{}, m.fail
 	}
-	return m.typ, m.data, nil
+	return m, nil
 }
 
 // readLoop reads frames until the connection ends, records why so that
@@ -122,6 +132,7 @@ func (c *Conn) readMessages() error {
 		msg   []byte
 		typ   opcode
 		inMsg bool // a message has started and not finished
+		pool  bool // the message's memory comes from the pool
 		text  utf8Validator
 		limit = c.cfg.readLimit
 	)
@@ -164,7 +175,7 @@ func (c *Conn) readMessages() error {
 		case h.rsv&rsv1Bit != 0:
 			// The first frame of a compressed message (RFC 7692 §6.1):
 			// the message is decompressed as its frames arrive.
-			msg, err := c.inflate.read(h, h.opcode == opText, limit)
+			msg, err := c.inflate.read(h, h.opcode == opText, limit, c.pooling.Load())
 			if err != nil {
 				return err
 			}
@@ -176,12 +187,12 @@ func (c *Conn) readMessages() error {
 			return &protocolError{code: StatusMessageTooBig, err: fmt.Errorf("%w of %d bytes", errMessageTooLarge, limit)}
 		}
 		if !inMsg {
-			typ, inMsg, text = h.opcode, true, utf8Validator{}
+			typ, inMsg, text, pool = h.opcode, true, utf8Validator{}, c.pooling.Load()
 		}
 		if typ == opText {
-			msg, err = c.readTextPayload(msg, h, int(limit), &text)
+			msg, err = c.readTextPayload(msg, h, int(limit), pool, &text)
 		} else {
-			msg, err = c.readPayload(msg, h, int(limit))
+			msg, err = c.readPayload(msg, h, int(limit), pool)
 		}
 		if err != nil {
 			return err
@@ -213,10 +224,11 @@ func frameReadError(err error) error {
 }
 
 // readPayload appends the payload of the frame h to msg. The caller has
-// checked that the result fits in limit.
-func (c *Conn) readPayload(msg []byte, h frameHeader, limit int) ([]byte, error) {
+// checked that the result fits in limit. With pool, msg grows into memory
+// from the pool.
+func (c *Conn) readPayload(msg []byte, h frameHeader, limit int, pool bool) ([]byte, error) {
 	start := len(msg)
-	msg = grow(msg, int(h.length), limit)
+	msg = grow(msg, int(h.length), limit, pool)
 	if _, err := io.ReadFull(c.fr.r, msg[start:]); err != nil {
 		return nil, noEOF(err)
 	}
@@ -228,19 +240,23 @@ func (c *Conn) readPayload(msg []byte, h frameHeader, limit int) ([]byte, error)
 
 // grow extends b by n bytes. Its capacity grows geometrically but never
 // beyond limit, so a message never takes more memory than the read limit.
-func grow(b []byte, n, limit int) []byte {
+// With pool, the new memory comes from the pool and b goes back to it.
+func grow(b []byte, n, limit int, pool bool) []byte {
 	need := len(b) + n
 	if need <= cap(b) {
 		return b[:need]
 	}
-	nb := make([]byte, need, min(max(2*cap(b), need), limit))
+	nb := newBuf(min(max(2*cap(b), need), limit), limit, pool)[:need]
 	copy(nb, b)
+	if pool {
+		putBuf(b)
+	}
 	return nb
 }
 
 // readControl reads and handles the control frame h (RFC 6455 §5.5).
 func (c *Conn) readControl(h frameHeader) error {
-	payload, err := c.readPayload(nil, h, maxControlPayload)
+	payload, err := c.readPayload(nil, h, maxControlPayload, false)
 	if err != nil {
 		return err
 	}

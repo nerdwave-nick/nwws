@@ -44,9 +44,9 @@ func completeRunes(p []byte) int {
 // it checks UTF-8 after every read from the network, unmasking as the bytes
 // arrive, so invalid text fails the connection at the first bad bytes
 // instead of when the frame is complete.
-func (c *Conn) readTextPayload(msg []byte, h frameHeader, limit int, v *utf8Validator) ([]byte, error) {
+func (c *Conn) readTextPayload(msg []byte, h frameHeader, limit int, pool bool, v *utf8Validator) ([]byte, error) {
 	off := len(msg)
-	msg = grow(msg, int(h.length), limit)
+	msg = grow(msg, int(h.length), limit, pool)
 	pos := 0 // position in the masking key
 	for off < len(msg) {
 		n, err := c.fr.r.Read(msg[off:])

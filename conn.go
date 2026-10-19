@@ -84,6 +84,7 @@ type Conn struct {
 	rwait      int           // waitNone, or what readLoop waits for Read to do
 	rend       bool          // readLoop queues no more messages
 	discarding atomic.Bool   // Close has started: messages are dropped; set under rmu
+	pooling    atomic.Bool   // ReadInto was called: message memory comes from the pool
 	avail      chan struct{} // wakes a waiting Read; buffered
 	room       chan struct{} // wakes readLoop waiting for Read; buffered
 

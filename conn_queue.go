@@ -84,6 +84,7 @@ func (c *Conn) pushMessage(m message) (more bool) {
 	c.rmu.Lock()
 	if c.discarding.Load() {
 		c.rmu.Unlock()
+		c.release(m.data)
 		return true
 	}
 	c.rq.push(m, c.cfg.readBuffer)
@@ -200,10 +201,21 @@ func (c *Conn) discardMessages() {
 	c.rmu.Lock()
 	defer c.rmu.Unlock()
 	c.discarding.Store(true)
+	for c.rq.n > 0 {
+		c.release(c.rq.pop().data)
+	}
 	c.rq.clear()
 	if c.rwait != waitNone {
 		c.rwait = waitNone
 		notify(c.room)
+	}
+}
+
+// release gives the memory of a message nobody will read back to the
+// pool, once ReadInto has been called.
+func (c *Conn) release(data []byte) {
+	if c.pooling.Load() {
+		putBuf(data)
 	}
 }
 
