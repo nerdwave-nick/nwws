@@ -29,9 +29,10 @@ type writeReq struct {
 // Cancelling ctx withdraws a message that is still queued; the connection
 // stays usable. A message already being written cannot be withdrawn
 // without corrupting the stream, so the connection is closed instead.
-// Write returns ErrClosed once Close has been called or the peer's close
-// frame has arrived, and a *[CloseError] with StatusAbnormalClosure if the
-// connection is lost while writing.
+// Write returns ErrClosed once Close or CloseNow has been called or the
+// peer's close frame has arrived, also when CloseNow cuts a pending write
+// short, and a *[CloseError] with StatusAbnormalClosure if the connection
+// is lost while writing.
 func (c *Conn) Write(ctx context.Context, typ MessageType, p []byte) error {
 	switch typ {
 	case MessageText:
@@ -147,7 +148,7 @@ func (c *Conn) writeLoop() {
 		}
 		var err error
 		if werr := c.writeBatch(batch); werr != nil {
-			err = &CloseError{Code: StatusAbnormalClosure, err: werr}
+			err = c.writeErr(werr)
 		}
 		for _, r := range batch {
 			if r.done != nil {

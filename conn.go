@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 )
 
 // MessageType is the type of a data message (RFC 6455 §5.6).
@@ -32,11 +33,12 @@ func (t MessageType) String() string {
 }
 
 // ErrClosed is returned by Write and Close once the connection is closing
-// or closed, and by Read when the connection ended without a close status.
+// or closed, by CloseNow when the connection is already closed, and by Read
+// when the connection ended without a close status, as after CloseNow.
 var ErrClosed = errors.New("nwws: connection closed")
 
 // Conn is a WebSocket connection, on the server or the client side. Read,
-// Write and Close may be called from any goroutine.
+// Write, Close and CloseNow may be called from any goroutine.
 //
 // A goroutine of the connection reads frames: it reassembles messages,
 // answers pings and takes part in the closing handshake. It queues
@@ -79,7 +81,7 @@ type Conn struct {
 	readers    int           // Reads waiting for a message
 	rwait      int           // waitNone, or what readLoop waits for Read to do
 	rend       bool          // readLoop queues no more messages
-	discarding bool          // Close has started: messages are dropped
+	discarding atomic.Bool   // Close has started: messages are dropped; set under rmu
 	avail      chan struct{} // wakes a waiting Read; buffered
 	room       chan struct{} // wakes readLoop waiting for Read; buffered
 
@@ -172,13 +174,16 @@ func Dial(ctx context.Context, url string, opts *DialOptions) (*Conn, *http.Resp
 func (c *Conn) Subprotocol() string { return c.subprotocol }
 
 // closeNow closes the network connection at once. It records err as the
-// reason the connection ended, unless a reason is already recorded.
-func (c *Conn) closeNow(err error) {
+// reason the connection ended, unless a reason is already recorded, and
+// reports whether this call closed the connection.
+func (c *Conn) closeNow(err error) (closed bool) {
 	c.setErr(err)
 	c.closeOnce.Do(func() {
+		closed = true
 		close(c.closed)
 		_ = c.nc.Close()
 	})
+	return closed
 }
 
 func (c *Conn) setErr(err error) {
