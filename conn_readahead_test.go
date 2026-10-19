@@ -47,17 +47,21 @@ func startCounted(t *testing.T, cfg connConfig) (*Conn, *rawPeer, *countingConn)
 	return c, newRawPeer(t, cl, false), cc
 }
 
-// setBuffers sets the connection's receive buffer and the peer's send
-// buffer. Small buffers make the peer's writes block soon once the
-// connection stops reading, but slow loopback TCP down a lot.
-func setBuffers(t *testing.T, cc *countingConn, p *rawPeer, size int) {
+// startCountedPipe is startCounted over net.Pipe instead of TCP. A pipe
+// buffers nothing, so the peer's Write returns only once the connection
+// has read every byte: the back-pressure on the peer does not depend on the
+// kernel's socket buffers and TCP windows.
+func startCountedPipe(t *testing.T, cfg connConfig) (*Conn, *rawPeer, *countingConn) {
 	t.Helper()
-	if err := cc.Conn.(*net.TCPConn).SetReadBuffer(size); err != nil {
-		t.Fatal(err)
-	}
-	if err := p.nc.(*net.TCPConn).SetWriteBuffer(size); err != nil {
-		t.Fatal(err)
-	}
+	mine, theirs := net.Pipe()
+	closeQuietly(t, theirs)
+	cc := &countingConn{Conn: mine}
+	c := newConn(cc, true, "", cfg)
+	t.Cleanup(func() {
+		c.closeNow(ErrClosed)
+		c.wait()
+	})
+	return c, newRawPeer(t, theirs, false), cc
 }
 
 // clientFrames encodes messages as masked binary frames, as a client sends
@@ -363,36 +367,51 @@ func TestReadAheadAnswersPings(t *testing.T) {
 	})
 }
 
-// With the budget full the connection stops reading, so TCP pushes back
-// on the peer. The connection reads at most the budget plus one message
-// ahead, and resumes once Read drains the queue.
+// With the budget full the connection stops reading, so the transport
+// pushes back on the peer. The connection reads at most the budget plus
+// one message ahead, resumes each time Read makes room, and Read returns
+// every message in order.
+//
+// The test runs over net.Pipe, where the peer's Write cannot finish while
+// the connection does not read. Over loopback TCP, with socket buffers
+// shrunk so that the peer blocks soon, the result depended on the kernel:
+// on GitHub's runners the receive window stayed at the shrunk size after
+// the buffers were raised again, and the rest of the transfer crawled at
+// one window per persist timer tick, about 40 KB/s.
 func TestReadAheadBackPressure(t *testing.T) {
 	const budget, size, count = 64 << 10, 8 << 10, 512 // 4 MiB in all
-	c, peer, cc := startCounted(t, readAheadConfig(budget))
-	setBuffers(t, cc, peer, 4<<10)
+	c, peer, cc := startCountedPipe(t, readAheadConfig(budget))
 	sizes := make([]int, count)
 	for i := range sizes {
 		sizes[i] = size
 	}
 	wire := clientFrames(t, sizes)
+	frame := len(wire) / count
 	written := writeAsync(peer, wire)
 
-	read := stopped(t, c, cc)
-	if _, mem := queued(c); mem+entrySize <= budget || mem > budget+size {
-		t.Fatalf("queue holds %d bytes, want the budget %d filled by at most one message of %d bytes", mem, budget, size)
-	}
-	select {
-	case err := <-written:
-		t.Fatalf("the peer wrote all %d bytes (err %v), want it pushed back", len(wire), err)
-	default:
-	}
-	frame := len(wire) / count
-	if limit := budget + frame + 4096; read < budget/2 || read > int64(limit) {
-		t.Fatalf("read %d bytes ahead, want between %d and %d", read, budget/2, limit)
-	}
-	setBuffers(t, cc, peer, 1<<20) // read the rest at full speed
-
+	var last int64
 	for i := range count {
+		if i%100 == 0 && i < 400 {
+			// Read has taken i messages; far more than the budget is
+			// still to come, so the connection stops reading again.
+			read := stopped(t, c, cc)
+			if read <= last {
+				t.Fatalf("before message %d: read %d bytes, no more than at the last stop", i, read)
+			}
+			last = read
+			if _, mem := queued(c); mem+entrySize <= budget || mem > budget+size {
+				t.Fatalf("before message %d: queue holds %d bytes, want the budget %d filled by at most one message of %d bytes", i, mem, budget, size)
+			}
+			select {
+			case err := <-written:
+				t.Fatalf("before message %d: the peer wrote all %d bytes (err %v), want it pushed back", i, len(wire), err)
+			default:
+			}
+			ahead := read - int64(i*frame)
+			if limit := budget + frame + 4096; ahead < budget/2 || ahead > int64(limit) {
+				t.Fatalf("before message %d: read %d bytes ahead, want between %d and %d", i, ahead, budget/2, limit)
+			}
+		}
 		_, p, err := readMsg(t, c)
 		if err != nil || len(p) != size || binary.BigEndian.Uint32(p) != uint32(i) {
 			t.Fatalf("message %d: %d bytes, err %v", i, len(p), err)
