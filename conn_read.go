@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"time"
 )
@@ -125,14 +126,18 @@ func (c *Conn) readMessages() error {
 		msg   []byte
 		typ   opcode
 		inMsg bool // a message has started and not finished
-		dfl   bool // the message is compressed (RFC 7692 §6)
 		text  utf8Validator
 		limit = c.cfg.readLimit
 	)
 	for {
 		room := limit - int64(len(msg))
 		// Control frames up to 125 bytes stay readable when room is less.
+		// The first frame of a message may be compressed, which limits only
+		// the decompressed size; the check below limits the others.
 		c.fr.maxPayload = max(room, maxControlPayload)
+		if !inMsg {
+			c.fr.maxPayload = math.MaxInt64
+		}
 		h, err := c.fr.readHeader()
 		if err != nil {
 			return frameReadError(err)
@@ -152,28 +157,30 @@ func (c *Conn) readMessages() error {
 			return protocolErrorf(StatusProtocolError, "continuation frame without a message to continue")
 		case h.opcode != opContinuation && inMsg:
 			return protocolErrorf(StatusProtocolError, "new message before the previous one finished")
+		case h.rsv&rsv1Bit != 0:
+			// The first frame of a compressed message (RFC 7692 §6.1):
+			// the message is decompressed as its frames arrive.
+			msg, err := c.inflate.read(h, h.opcode == opText, limit)
+			if err != nil {
+				return err
+			}
+			if !c.deliver(message{typ: MessageType(h.opcode), data: msg}) {
+				return net.ErrClosed
+			}
+			continue
 		case h.length > room:
 			return &protocolError{code: StatusMessageTooBig, err: fmt.Errorf("%w of %d bytes", errMessageTooLarge, limit)}
 		}
 		if !inMsg {
 			typ, inMsg, text = h.opcode, true, utf8Validator{}
-			dfl = h.rsv&rsv1Bit != 0
 		}
-		if typ == opText && !dfl {
+		if typ == opText {
 			msg, err = c.readTextPayload(msg, h, int(limit), &text)
 		} else {
 			msg, err = c.readPayload(msg, h, int(limit))
 		}
 		if err != nil {
 			return err
-		}
-		if dfl {
-			if !h.fin {
-				continue // the compressed bytes are buffered in msg
-			}
-			if msg, err = c.inflate.message(msg, limit); err != nil {
-				return err
-			}
 		}
 		if typ == opText && !text.valid(msg, h.fin) {
 			return &protocolError{code: StatusInvalidFramePayloadData, err: errInvalidUTF8}

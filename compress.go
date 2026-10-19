@@ -131,5 +131,11 @@ func (c *Conn) initCompression() {
 	}
 	c.fr.rsv, c.fw.rsv = rsv1Bit, rsv1Bit
 	c.inflate = &inflater{takeover: cfg.readTakeover}
+	c.inflate.src = frameSource{
+		r: c.fr.r.(flate.Reader), // newConn reads through a bufio.Reader
+		next: func() (frameHeader, error) {
+			return nextFragment(&c.fr, c.readControl)
+		},
+	}
 	c.deflate = &deflater{cfg: *cfg}
 }

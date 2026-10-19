@@ -19,8 +19,7 @@ type ConnOptions struct {
 	// connection reads. A larger message closes the connection with
 	// StatusMessageTooBig (1009). The limit also bounds the memory a
 	// message being read takes. For a compressed message, it applies to
-	// the compressed and to the decompressed size. Zero or less means
-	// DefaultReadLimit.
+	// the decompressed size only. Zero or less means DefaultReadLimit.
 	ReadLimit int64
 
 	// PingInterval is how often the connection pings the peer. Zero or
