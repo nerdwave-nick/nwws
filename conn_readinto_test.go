@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"net"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -341,9 +343,49 @@ func writeMessages(t *testing.T, p *rawPeer, server bool, n, count int) (int, <-
 	return batches * perBatch, done
 }
 
+// startPipeConn is startConn over net.Pipe instead of TCP.
+func startPipeConn(t *testing.T, server bool, cfg connConfig) (*Conn, *rawPeer) {
+	t.Helper()
+	mine, theirs := net.Pipe()
+	closeQuietly(t, theirs)
+	c := newConn(mine, server, "", cfg)
+	t.Cleanup(func() {
+		c.closeNow(ErrClosed)
+		c.wait()
+	})
+	return c, newRawPeer(t, theirs, !server)
+}
+
+// fillPool makes the pool hold count buffers of n bytes, and grows the
+// storage of the pools of buffers and of their boxes to hold count each,
+// as a pool that has served count buffers at once has. A sync.Pool pushes
+// only into its newest storage segment, which doubles when full, so it
+// takes a few rounds until that segment holds count.
+func fillPool(n, count int) {
+	bufs := make([][]byte, count)
+	for range 3 {
+		for i := range bufs {
+			bufs[i] = getBuf(n, n)
+		}
+		for _, b := range bufs {
+			putBuf(b)
+		}
+	}
+}
+
 // In steady state, ReadInto into a large enough buffer allocates nothing
-// per message, on either side. The first half of the messages warms the
-// pool up, until it holds as many buffers as read-ahead keeps in flight.
+// per message, on either side.
+//
+// Steady state means the pool holds as many buffers as read-ahead keeps in
+// flight: the messages queued within the budget, one being read and one
+// being copied. Warming up by reading is not enough, because read-ahead
+// may run deeper later than it did while warming up, so the test fills the
+// pool, and the storage of sync.Pool itself, to that bound first. It reads many more messages than that, so a
+// buffer that does not go back to the pool still fails it. A garbage
+// collection empties sync.Pool, so collection is off while the test runs.
+// The connection runs over net.Pipe, which makes no system calls: over
+// TCP, a system call that blocks long enough makes the runtime start
+// another thread, which allocates.
 //
 // The test runs with GOMAXPROCS=1, so that the result does not depend on
 // sync.Pool's caches per P: with more Ps, a buffer put on one P is taken
@@ -362,7 +404,7 @@ func TestReadIntoAllocations(t *testing.T) {
 			t.Run(size.name, func(t *testing.T) {
 				cfg := testConfig()
 				cfg.readLimit = 2 << 20
-				c, peer := startConn(t, server, cfg)
+				c, peer := startPipeConn(t, server, cfg)
 				count, written := writeMessages(t, peer, server, size.n, size.count)
 				buf := make([]byte, 0, size.n)
 				read := func(count int) {
@@ -376,9 +418,15 @@ func TestReadIntoAllocations(t *testing.T) {
 						}
 					}
 				}
-				// Collect the test's garbage first: a collection empties
-				// sync.Pool, after which the pool warms up again.
 				runtime.GC()
+				defer debug.SetGCPercent(debug.SetGCPercent(-1))
+				// Up to inFlight buffers are in use at once. As many may
+				// have been taken new before the pool was filled.
+				inFlight := DefaultReadBuffer/size.n + 3
+				if count/2 <= 2*inFlight {
+					t.Fatalf("%d messages measured, want more than the %d buffers in the pool", count/2, 2*inFlight)
+				}
+				fillPool(size.n, 2*inFlight)
 				warm := count / 2
 				read(warm)
 				var before, after runtime.MemStats
@@ -390,8 +438,8 @@ func TestReadIntoAllocations(t *testing.T) {
 				}
 				msgs := count - warm
 				allocs := after.Mallocs - before.Mallocs
-				t.Logf("%d allocations, %d bytes for %d messages", allocs, after.TotalAlloc-before.TotalAlloc, msgs)
-				if float64(allocs)/float64(msgs) > 0.01 {
+				t.Logf("%d allocations, %d bytes for %d messages, %d collections", allocs, after.TotalAlloc-before.TotalAlloc, msgs, after.NumGC-before.NumGC)
+				if allocs != 0 {
 					t.Fatalf("%d allocations for %d messages, want none per message", allocs, msgs)
 				}
 			})
