@@ -181,6 +181,9 @@ func (c *Conn) takeBatch() []*writeReq {
 
 func (c *Conn) writeBatch(batch []*writeReq) error {
 	for _, r := range batch {
+		if r.op == opPing {
+			c.live.pingWriting(r.payload)
+		}
 		if err := c.fw.writeFrame(true, 0, r.op, r.payload); err != nil {
 			return err
 		}
