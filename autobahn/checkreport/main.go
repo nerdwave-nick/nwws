@@ -1,6 +1,7 @@
 // Command checkreport checks an Autobahn report summary (index.json): every
-// case of the agent must have passed, and each NON-STRICT case must be
-// explained in the README. It prints the number of cases per behaviour.
+// case of the agent must have passed, and each NON-STRICT or UNIMPLEMENTED
+// case must be explained in the README. It prints the number of cases per
+// behaviour.
 //
 // Usage:
 //
@@ -23,13 +24,13 @@ import (
 
 func main() {
 	agent := flag.String("agent", "nwws", "agent whose cases to check")
-	readme := flag.String("readme", "", "Markdown file whose \""+nonStrictHeading+"\" section must mention every NON-STRICT case")
+	readme := flag.String("readme", "", "Markdown file whose \"## NON-STRICT cases\" and \"## UNIMPLEMENTED cases\" sections must mention every such case")
 	flag.Parse()
 	if flag.NArg() == 0 {
 		fmt.Fprintln(os.Stderr, "usage: checkreport [-agent nwws] [-readme file] index.json...")
 		os.Exit(2)
 	}
-	documented := func(string) bool { return true }
+	documented := func(string, string) bool { return true }
 	if *readme != "" {
 		b, err := os.ReadFile(*readme)
 		if err != nil {
@@ -66,7 +67,11 @@ type result struct {
 // held to the same standard.
 var passing = map[string]bool{"OK": true, "NON-STRICT": true, "INFORMATIONAL": true}
 
-func checkFile(name, agent string, documented func(string) bool) error {
+// explained lists the behaviours that pass only when the README explains
+// the case in the section for that behaviour.
+var explained = map[string]bool{"NON-STRICT": true, "UNIMPLEMENTED": true}
+
+func checkFile(name, agent string, documented func(behavior, id string) bool) error {
 	f, err := os.Open(name)
 	if err != nil {
 		return err
@@ -84,8 +89,9 @@ func checkFile(name, agent string, documented func(string) bool) error {
 }
 
 // check reads an index.json from r and checks the cases of agent. A
-// NON-STRICT case passes only if documented reports it as explained.
-func check(r io.Reader, agent string, documented func(string) bool) (result, error) {
+// NON-STRICT or UNIMPLEMENTED case passes only if documented reports it as
+// explained for that behaviour.
+func check(r io.Reader, agent string, documented func(behavior, id string) bool) (result, error) {
 	var index map[string]map[string]caseResult
 	if err := json.NewDecoder(r).Decode(&index); err != nil {
 		return result{}, fmt.Errorf("reading the index: %w", err)
@@ -102,14 +108,24 @@ func check(r io.Reader, agent string, documented func(string) bool) (result, err
 	for _, id := range sortedIDs(cases) {
 		c := cases[id]
 		res.counts[c.Behavior]++
-		switch {
-		case !passing[c.Behavior] || !passing[c.BehaviorClose]:
-			problems = append(problems, fmt.Errorf("case %s: behavior %s, close behavior %s", id, c.Behavior, c.BehaviorClose))
-		case c.Behavior == "NON-STRICT" && !documented(id):
-			problems = append(problems, fmt.Errorf("case %s: NON-STRICT without a reason in the README", id))
+		if err := checkCase(id, c, documented); err != nil {
+			problems = append(problems, err)
 		}
 	}
 	return res, errors.Join(problems...)
+}
+
+// checkCase checks the behaviour and the close behaviour of one case.
+func checkCase(id string, c caseResult, documented func(behavior, id string) bool) error {
+	for _, b := range []string{c.Behavior, c.BehaviorClose} {
+		if explained[b] && !documented(b, id) {
+			return fmt.Errorf("case %s: %s without a reason in the README", id, b)
+		}
+		if !passing[b] && !explained[b] {
+			return fmt.Errorf("case %s: behavior %s, close behavior %s", id, c.Behavior, c.BehaviorClose)
+		}
+	}
+	return nil
 }
 
 // sortedIDs returns the case IDs in numeric order: 1.1.2 before 1.1.10.
@@ -127,26 +143,23 @@ func sortedIDs(cases map[string]caseResult) []string {
 	})
 }
 
-// nonStrictHeading starts the README section that explains NON-STRICT cases.
-const nonStrictHeading = "## NON-STRICT cases"
-
 // documentedIn returns whether a case ID appears as a whole word in the
-// NON-STRICT section of the Markdown text, up to the next heading.
-func documentedIn(text string) func(string) bool {
-	var section strings.Builder
-	in := false
+// Markdown section of a behaviour, "## NON-STRICT cases" for NON-STRICT,
+// up to the next heading.
+func documentedIn(text string) func(behavior, id string) bool {
+	words := map[string]map[string]bool{} // case IDs by section heading
+	var heading string
 	for line := range strings.Lines(text) {
 		if strings.HasPrefix(line, "#") {
-			in = strings.TrimSpace(line) == nonStrictHeading
+			heading = strings.TrimSpace(line)
 			continue
 		}
-		if in {
-			section.WriteString(line)
+		for _, w := range strings.FieldsFunc(line, func(r rune) bool { return r != '.' && (r < '0' || r > '9') }) {
+			if words[heading] == nil {
+				words[heading] = map[string]bool{}
+			}
+			words[heading][strings.TrimRight(w, ".")] = true
 		}
 	}
-	words := map[string]bool{}
-	for _, w := range strings.FieldsFunc(section.String(), func(r rune) bool { return r != '.' && (r < '0' || r > '9') }) {
-		words[strings.TrimRight(w, ".")] = true
-	}
-	return func(id string) bool { return words[id] }
+	return func(behavior, id string) bool { return words["## "+behavior+" cases"][id] }
 }

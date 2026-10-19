@@ -4,7 +4,7 @@
 //
 // Usage:
 //
-//	echoclient [-url ws://127.0.0.1:9702] [-agent nwws] [-read-limit 33554432]
+//	echoclient [-url ws://127.0.0.1:9702] [-agent nwws] [-read-limit 33554432] [-compress]
 package main
 
 import (
@@ -23,11 +23,16 @@ func main() {
 	base := flag.String("url", "ws://127.0.0.1:9702", "URL of the fuzzingserver")
 	agent := flag.String("agent", "nwws", "agent name in the reports")
 	readLimit := flag.Int64("read-limit", 32<<20, "largest message to read, in bytes")
+	compress := flag.Bool("compress", false, "enable permessage-deflate and compress every non-empty message")
 	flag.Parse()
 
 	c := client{base: *base, agent: *agent, opts: &nwws.DialOptions{
 		ConnOptions: nwws.ConnOptions{ReadLimit: *readLimit},
 	}}
+	if *compress {
+		// A threshold of one byte puts every echo through the compressor.
+		c.opts.Compression = &nwws.CompressionOptions{Threshold: 1}
+	}
 	n, err := c.caseCount()
 	if err != nil {
 		log.Fatalf("getCaseCount: %v", err)

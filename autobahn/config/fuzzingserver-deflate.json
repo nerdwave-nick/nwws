@@ -1,0 +1,7 @@
+{
+  "url": "ws://127.0.0.1:9704",
+  "outdir": "/reports/client-deflate",
+  "cases": ["12.*", "13.*"],
+  "exclude-cases": [],
+  "exclude-agent-cases": {}
+}

@@ -10,12 +10,15 @@ func TestCheck(t *testing.T) {
 		"1.1.1": {"behavior": "OK", "behaviorClose": "OK"},
 		"1.1.2": {"behavior": "OK", "behaviorClose": "OK"},
 		"6.4.3": {"behavior": "NON-STRICT", "behaviorClose": "OK"},
-		"7.1.6": {"behavior": "INFORMATIONAL", "behaviorClose": "INFORMATIONAL"}
+		"7.1.6": {"behavior": "INFORMATIONAL", "behaviorClose": "INFORMATIONAL"},
+		"13.3.1": {"behavior": "UNIMPLEMENTED", "behaviorClose": "OK"}
 	}}`
-	documented := func(ids ...string) func(string) bool {
-		return func(id string) bool {
+	// documented explains each case for the behaviour of its ID prefix:
+	// "N:6.4.3" for NON-STRICT, "U:13.3.1" for UNIMPLEMENTED.
+	documented := func(ids ...string) func(string, string) bool {
+		return func(behavior, id string) bool {
 			for _, d := range ids {
-				if d == id {
+				if d == behavior[:1]+":"+id {
 					return true
 				}
 			}
@@ -24,11 +27,11 @@ func TestCheck(t *testing.T) {
 	}
 
 	t.Run("passing", func(t *testing.T) {
-		r, err := check(strings.NewReader(passing), "nwws", documented("6.4.3"))
+		r, err := check(strings.NewReader(passing), "nwws", documented("N:6.4.3", "U:13.3.1"))
 		if err != nil {
 			t.Fatalf("check = %v, want nil", err)
 		}
-		want := map[string]int{"OK": 2, "NON-STRICT": 1, "INFORMATIONAL": 1}
+		want := map[string]int{"OK": 2, "NON-STRICT": 1, "INFORMATIONAL": 1, "UNIMPLEMENTED": 1}
 		if len(r.counts) != len(want) {
 			t.Errorf("counts = %v, want %v", r.counts, want)
 		}
@@ -37,14 +40,14 @@ func TestCheck(t *testing.T) {
 				t.Errorf("counts[%s] = %d, want %d", b, r.counts[b], n)
 			}
 		}
-		if r.total != 4 {
-			t.Errorf("total = %d, want 4", r.total)
+		if r.total != 5 {
+			t.Errorf("total = %d, want 5", r.total)
 		}
 	})
 
 	failing := []struct {
 		name, report, agent string
-		documented          func(string) bool
+		documented          func(string, string) bool
 		want                string // in the error
 	}{
 		{"failed case", `{"nwws": {"1.1.1": {"behavior": "OK", "behaviorClose": "OK"},
@@ -53,8 +56,13 @@ func TestCheck(t *testing.T) {
 			"nwws", documented(), "7.1.1"},
 		{"unimplemented", `{"nwws": {"12.1.1": {"behavior": "UNIMPLEMENTED", "behaviorClose": "UNIMPLEMENTED"}}}`,
 			"nwws", documented(), "12.1.1"},
-		{"undocumented non-strict", passing, "nwws", documented(), "6.4.3"},
-		{"missing agent", passing, "other", documented("6.4.3"), "other"},
+		{"undocumented non-strict", passing, "nwws", documented("U:13.3.1"), "6.4.3"},
+		{"undocumented unimplemented", passing, "nwws", documented("N:6.4.3"), "13.3.1"},
+		{"non-strict listed as unimplemented", passing, "nwws", documented("U:6.4.3", "U:13.3.1"), "6.4.3"},
+		{"unimplemented listed as non-strict", passing, "nwws", documented("N:6.4.3", "N:13.3.1"), "13.3.1"},
+		{"unimplemented close", `{"nwws": {"12.1.1": {"behavior": "OK", "behaviorClose": "UNIMPLEMENTED"}}}`,
+			"nwws", documented(), "12.1.1"},
+		{"missing agent", passing, "other", documented("N:6.4.3", "U:13.3.1"), "other"},
 		{"no cases", `{"nwws": {}}`, "nwws", documented(), "no cases"},
 		{"invalid JSON", `{"nwws": `, "nwws", documented(), "index"},
 	}
@@ -89,16 +97,26 @@ Case 1.1.1 is mentioned outside the section.
 | 6.4.3, 6.4.4 | reason |
 | 5.15 | reason ending in a case 3.2. |
 
+## UNIMPLEMENTED cases
+
+| 13.3.1, 13.3.2 | reason |
+
 ## INFORMATIONAL cases
 
 7.1.6
 `)
-	for id, want := range map[string]bool{
-		"6.4.3": true, "6.4.4": true, "5.15": true, "3.2": true,
-		"6.4.1": false, "6.4": false, "1.1.1": false, "7.1.6": false,
+	for _, tc := range []struct {
+		behavior, id string
+		want         bool
+	}{
+		{"NON-STRICT", "6.4.3", true}, {"NON-STRICT", "6.4.4", true}, {"NON-STRICT", "5.15", true},
+		{"NON-STRICT", "3.2", true}, {"NON-STRICT", "6.4.1", false}, {"NON-STRICT", "6.4", false},
+		{"NON-STRICT", "1.1.1", false}, {"NON-STRICT", "7.1.6", false}, {"NON-STRICT", "13.3.1", false},
+		{"UNIMPLEMENTED", "13.3.1", true}, {"UNIMPLEMENTED", "13.3.2", true}, {"UNIMPLEMENTED", "6.4.3", false},
+		{"UNIMPLEMENTED", "13.3.3", false},
 	} {
-		if got := doc(id); got != want {
-			t.Errorf("documented(%q) = %v, want %v", id, got, want)
+		if got := doc(tc.behavior, tc.id); got != tc.want {
+			t.Errorf("documented(%s, %q) = %v, want %v", tc.behavior, tc.id, got, tc.want)
 		}
 	}
 }
