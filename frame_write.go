@@ -23,7 +23,7 @@ type frameWriter struct {
 	// rsv holds the RSV bits allowed by negotiated extensions.
 	rsv byte
 
-	buf []byte // header and masked payload, allocated on first use
+	buf []byte // header and masked payload, allocated on first use unless set
 }
 
 // writeFrame writes one frame with the given fields and payload, using the

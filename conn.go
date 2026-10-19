@@ -50,7 +50,8 @@ var ErrClosed = errors.New("nwws: connection closed")
 // Frames are written one at a time, so concurrent writers never
 // interleave. A Write on an idle connection writes its frame itself;
 // messages queued while a write is in progress are sent together in the
-// next one, by another goroutine of the connection.
+// next one, by another goroutine of the connection, which also pings the
+// peer. An idle connection holds no write buffer.
 type Conn struct {
 	nc          net.Conn
 	server      bool
@@ -76,6 +77,10 @@ type Conn struct {
 	pongs   []*writeReq // pongs to send first, oldest first, guarded by wmu
 	wclosed bool        // no more frames are accepted, guarded by wmu
 	writing bool        // writeLoop or a Write owns the write side, guarded by wmu
+
+	// The pooled buffer of bw and fw, held only while writing or while
+	// frames wait to be written; guarded by wmu.
+	wbuf *writeBuffer
 
 	// Complete messages read ahead for Read, guarded by rmu.
 	rmu        sync.Mutex
@@ -110,7 +115,6 @@ func newConn(nc net.Conn, server bool, subprotocol string, cfg connConfig) *Conn
 		cfg:         cfg,
 		closeRcvd:   make(chan struct{}),
 		readDone:    make(chan struct{}),
-		bw:          bufio.NewWriterSize(nc, writeBufferSize),
 		wake:        make(chan struct{}, 1),
 		closeSent:   make(chan struct{}),
 		writeDone:   make(chan struct{}),
@@ -120,11 +124,10 @@ func newConn(nc net.Conn, server bool, subprotocol string, cfg connConfig) *Conn
 	}
 	c.live = newLiveness(c)
 	c.fr = frameReader{r: bufio.NewReader(c.live.reader(nc)), server: server}
-	c.fw = frameWriter{w: c.bw, server: server}
+	c.fw = frameWriter{server: server} // writes to wbuf; see takeWriteBuffer
 	c.initCompression()
 	go c.readLoop()
 	go c.writeLoop()
-	c.live.start()
 	return c
 }
 
@@ -211,5 +214,4 @@ func (c *Conn) endErr() error {
 func (c *Conn) wait() {
 	<-c.readDone
 	<-c.writeDone
-	c.live.wait()
 }
