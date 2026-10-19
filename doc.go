@@ -49,5 +49,6 @@
 // the connection was lost without a close frame. A peer that violates the
 // protocol is disconnected with the matching close code: 1009 for a
 // message beyond the read limit, 1007 for invalid UTF-8 in text, 1002
-// otherwise.
+// otherwise. Read reports the violation after the messages received
+// before it.
 package nwws

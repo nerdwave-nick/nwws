@@ -36,7 +36,11 @@ go get github.com/nerdwave-nick/nwws
   the memory used to read it. The default is `DefaultReadLimit` (1 MiB).
 - **Protocol violations** close the connection with the matching code:
   1009 for a message over the read limit, 1007 for invalid UTF-8 in text,
-  and 1002 for anything else.
+  and 1002 for anything else. `Read` reports a violation in order, after
+  the messages received before it, so replies to those go out before the
+  close frame. If `Read` is not called within the close timeout, the
+  connection is failed anyway. Text is checked for UTF-8 as its bytes
+  arrive.
 - **Close codes.** A close frame may carry 1000–1003, 1007–1014 or
   3000–4999. Codes 4000–4999 are for applications. Any other code from a
   peer is answered with 1002.
@@ -210,10 +214,12 @@ compression, and sections 12 and 13 with permessage-deflate on both sides:
 ./autobahn/run.sh
 ```
 
-The script exits non-zero unless every case passes. `go test ./...` does
-not run the suite and needs no Docker. See
-[autobahn/README.md](autobahn/README.md) for what passing means, the
-NON-STRICT cases and their reasons, and the committed report summaries.
+The gate is strict: the script exits non-zero unless every case is `OK`,
+or `INFORMATIONAL` where the suite defines no stricter outcome.
+`AUTOBAHN_PASSES=plain|deflate|all` (default `all`) selects the passes.
+`go test ./...` does not run the suite and needs no Docker. See
+[autobahn/README.md](autobahn/README.md) for what passing means and the
+committed report summaries.
 
 ## Compression
 

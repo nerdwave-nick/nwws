@@ -14,10 +14,12 @@ var (
 	errInvalidUTF8     = errors.New("nwws: text is not valid UTF-8")
 )
 
-// message is a complete data message.
+// message is a complete data message, or a violation by the peer that
+// Read reports in order, after the messages received before it.
 type message struct {
 	typ  MessageType
 	data []byte
+	fail *protocolError
 }
 
 // protocolError is a violation of RFC 6455 by the peer, for which the
@@ -45,11 +47,23 @@ func protocolErrorf(code StatusCode, format string, args ...any) *protocolError 
 // peer's close code and reason, a *CloseError with StatusAbnormalClosure
 // when the connection was lost without a close frame, or another error
 // when this side failed the connection.
+//
+// A protocol violation by the peer is reported in order, after the
+// messages received before it, and its close frame is queued before Read
+// returns, so it follows what the application wrote in reply to those
+// messages. If Read is not called within the close timeout, the connection
+// is failed anyway.
 func (c *Conn) Read(ctx context.Context) (MessageType, []byte, error) {
 	select {
 	case m, ok := <-c.msgs:
 		if !ok {
 			return 0, nil, c.endErr()
+		}
+		if m.fail != nil {
+			// Queue the failure's close frame before Read returns, so a
+			// Close called after Read cannot replace its code.
+			_, _ = c.queueClose(closePayload(m.fail.code, ""))
+			return 0, nil, m.fail
 		}
 		return m.typ, m.data, nil
 	case <-ctx.Done():
@@ -84,6 +98,7 @@ func (c *Conn) readLoop() {
 		_, _ = c.queueClose(echo)
 		close(c.closeRcvd)
 	case failed:
+		c.deliverFailure(pe)
 		_, _ = c.queueClose(closePayload(pe.code, ""))
 	}
 	close(c.msgs)
@@ -144,7 +159,12 @@ func (c *Conn) readMessages() error {
 			typ, inMsg, text = h.opcode, true, utf8Validator{}
 			dfl = h.rsv&rsv1Bit != 0
 		}
-		if msg, err = c.readPayload(msg, h, int(limit)); err != nil {
+		if typ == opText && !dfl {
+			msg, err = c.readTextPayload(msg, h, int(limit), &text)
+		} else {
+			msg, err = c.readPayload(msg, h, int(limit))
+		}
+		if err != nil {
 			return err
 		}
 		if dfl {
@@ -222,27 +242,6 @@ func (c *Conn) readControl(h frameHeader) error {
 		return parseClose(payload)
 	}
 	return nil
-}
-
-// deliver hands m to Read. It drops m once Close has started, and reports
-// false if the connection was closed first. While m waits for Read, the
-// liveness timeout is suspended.
-func (c *Conn) deliver(m message) bool {
-	select {
-	case c.msgs <- m:
-		return true
-	default:
-	}
-	c.live.hold()
-	defer c.live.resume()
-	select {
-	case c.msgs <- m:
-		return true
-	case <-c.discard:
-		return true
-	case <-c.closed:
-		return false
-	}
 }
 
 // awaitCloseSent waits a bounded time for our close frame to be written
