@@ -44,9 +44,11 @@ var ErrClosed = errors.New("nwws: connection closed")
 // While no message waits to be read, Read reads frames itself, in the
 // calling goroutine: it reassembles the next message, answers pings and
 // takes part in the closing handshake. When no Read has run for a couple
-// of milliseconds, a goroutine of the connection takes over until the
-// next Read comes. It queues complete messages for Read and keeps reading
-// while they take less than the read-ahead budget,
+// of milliseconds, or after a large message, a goroutine of the
+// connection takes over: it reads the next message while the application
+// handles the last, until a Read waits for a small one. It queues
+// complete messages for Read and keeps reading while they take less than
+// the read-ahead budget,
 // [ConnOptions.ReadBuffer]. Once the budget is full, it reads no further
 // frames until Read makes room, so keep calling Read for as long as the
 // connection is in use. Compressed connections, and those whose read

@@ -400,3 +400,70 @@ func TestCloseStartsReadGoroutine(t *testing.T) {
 	}
 	c.wait()
 }
+
+// roleOf returns who holds the reader role.
+func roleOf(c *Conn) int {
+	c.rmu.Lock()
+	defer c.rmu.Unlock()
+	return c.role
+}
+
+// Large messages are read ahead: a Read that has read one itself gives
+// the reader role to the read goroutine at once, which keeps it while
+// large messages follow, also when Reads wait. After a small message, a
+// waiting Read takes the role back and reads frames itself.
+func TestLargeMessagesReadAhead(t *testing.T) {
+	c, peer := startConn(t, true, testConfig())
+	small, large := []byte("small"), bytes.Repeat([]byte("L"), readAheadSize)
+
+	peer.send(true, opBinary, small)
+	mustRead(t, c, MessageBinary, small)
+	if r := roleOf(c); r != roleFree {
+		t.Fatalf("after a small message read by Read: role %d, want free (%d)", r, roleFree)
+	}
+
+	peer.send(true, opBinary, large)
+	mustRead(t, c, MessageBinary, large)
+	if r := roleOf(c); r != roleLoop && r != roleEnded {
+		t.Fatalf("after a large message read by Read: role %d, want the read goroutine (%d)", r, roleLoop)
+	}
+
+	// Reads that wait get large messages from the read goroutine, which
+	// keeps the role.
+	for range 3 {
+		done := readAsync(t, c)
+		waitFor(t, "the Read to wait", func() bool {
+			c.rmu.Lock()
+			defer c.rmu.Unlock()
+			return c.readers == 1
+		})
+		peer.send(true, opBinary, large)
+		if err := waitErr(t, done); err != nil {
+			t.Fatalf("Read: %v", err)
+		}
+		if r := roleOf(c); r != roleLoop {
+			t.Fatalf("after a large message queued for a waiting Read: role %d, want the read goroutine (%d)", r, roleLoop)
+		}
+	}
+
+	// A small message for a waiting Read gives the role back.
+	done := readAsync(t, c)
+	waitFor(t, "the Read to wait", func() bool {
+		c.rmu.Lock()
+		defer c.rmu.Unlock()
+		return c.readers == 1
+	})
+	peer.send(true, opBinary, small)
+	if err := waitErr(t, done); err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	waitFor(t, "the read goroutine to hand the role over", func() bool {
+		r := roleOf(c)
+		return r == roleFree || r == roleRead
+	})
+	peer.send(true, opBinary, small)
+	mustRead(t, c, MessageBinary, small)
+	if r := roleOf(c); r != roleFree {
+		t.Fatalf("after a small message read by Read again: role %d, want free (%d)", r, roleFree)
+	}
+}

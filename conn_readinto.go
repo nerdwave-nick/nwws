@@ -28,7 +28,8 @@ import (
 //
 // While no message has been read ahead, ReadInto reads the message
 // straight into buf, as Read reads frames itself then; see [Conn]. A
-// message read ahead is in memory of the connection's own. Once a
+// message read ahead, as large messages are, is in memory of the
+// connection's own. Once a
 // connection has called ReadInto, it takes that memory from a pool shared
 // by all connections, and ReadInto gives it back after copying the
 // message into buf. Read and ReadInto may be mixed.

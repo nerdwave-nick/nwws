@@ -105,7 +105,7 @@ func (c *Conn) readLoop() {
 		case !c.deliver(m):
 			c.endRead(net.ErrClosed, false)
 			return
-		case c.handOff():
+		case c.handOff(m):
 			return
 		}
 	}

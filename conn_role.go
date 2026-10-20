@@ -29,6 +29,10 @@ import (
 // on the same loops.
 const takeoverDelay = 2 * time.Millisecond
 
+// readAheadSize is the message size from which the read goroutine reads
+// ahead instead of Read reading frames itself.
+const readAheadSize = 64 << 10
+
 // Holders of the reader role, in Conn.role. Whoever holds it reads
 // frames, with the position in the stream kept in Conn.rs.
 const (
@@ -63,6 +67,14 @@ func (c *Conn) readAsCaller(ctx context.Context, buf []byte, into bool) (message
 		interrupted = c.unwatch()
 	}
 	switch {
+	case got && len(m.data) >= readAheadSize:
+		// Large messages are read ahead: the read goroutine reads the
+		// next one while the application handles this one.
+		c.rs.userBuf = nil
+		c.rmu.Lock()
+		c.startLoop()
+		c.rmu.Unlock()
+		return m, nil
 	case got:
 		c.rs.userBuf = nil
 		c.releaseRole()
@@ -142,12 +154,12 @@ func (c *Conn) takeoverFired() {
 }
 
 // handOff gives the reader role of the read goroutine to the Reads
-// waiting for a message, once the read goroutine has queued one, and
-// reports whether it did. A waiting Read is woken: it takes a queued
-// message or, when another Read took that, the free role, so that it
-// reads frames itself.
-func (c *Conn) handOff() bool {
-	if !c.direct {
+// waiting for a message, once the read goroutine has queued m, unless m
+// is large, and reports whether it did. A waiting Read is woken: it takes
+// a queued message or, when another Read took that, the free role, so
+// that it reads frames itself.
+func (c *Conn) handOff(m message) bool {
+	if !c.direct || len(m.data) >= readAheadSize {
 		return false
 	}
 	c.rmu.Lock()
