@@ -29,10 +29,13 @@ const (
 // goroutines (goroutines/conn) per connection. The other side runs in a child process, so that only
 // the measured side is counted.
 //
-// Every connection has one application goroutine blocked in a read, on
-// both sides: all three libraries need the application to keep reading,
-// coder and gorilla to process control frames at all. That goroutine is
-// part of the numbers.
+// Every connection of a pull-based library has one application
+// goroutine blocked in a read, on both sides: those libraries need the
+// application to keep reading, coder, gorilla and gobwas to process
+// control frames at all. That goroutine is part of the numbers. nbio
+// needs none: its pollers read every connection. Its engine, with its
+// goroutines and shared buffers, starts before the first sample, so it
+// is not counted per connection.
 //
 // The heap is HeapAlloc after two collections, which also empty
 // sync.Pool. Goroutine stacks are not included: the runtime keeps the
@@ -51,7 +54,7 @@ func BenchmarkIdle(b *testing.B) {
 // idleServer measures idleConns server connections of lib, dialed by a
 // child process.
 func idleServer(b *testing.B, lib library) {
-	url, accepted := serve(b, lib, idleConns)
+	url, accepted := serve(b, lib, idleConns, false)
 	conns := make([]conn, 0, idleConns)
 	b.Cleanup(func() {
 		for _, c := range conns {
@@ -63,7 +66,7 @@ func idleServer(b *testing.B, lib library) {
 	for range idleConns {
 		c := accept(b, accepted)
 		conns = append(conns, c)
-		go c.read()
+		c.idle()
 	}
 	if line := child.line(b); line != idleReady {
 		b.Fatalf("child: %q", line)
@@ -81,6 +84,9 @@ func idleServer(b *testing.B, lib library) {
 func idleClient(b *testing.B, lib library) {
 	child := startIdleChild(b, "server", lib.name, "")
 	url := child.line(b)
+	if lib.prepare != nil {
+		lib.prepare()
+	}
 	conns := make([]conn, 0, idleConns)
 	b.Cleanup(func() {
 		for _, c := range conns {
@@ -94,7 +100,7 @@ func idleClient(b *testing.B, lib library) {
 			b.Fatalf("dial %d: %v", i, err)
 		}
 		conns = append(conns, c)
-		go c.read()
+		c.idle()
 	}
 	time.Sleep(idleSettle)
 	after := idleSample()
@@ -199,7 +205,7 @@ func (c *idleChild) line(b *testing.B) string {
 // TestIdleHelper is the child process of BenchmarkIdle. As "server", it
 // serves the library's connections and writes its URL; as "client", it
 // dials idleConns connections and writes idleReady. Every connection
-// reads, as in BenchmarkIdle. It exits when its stdin closes. It does
+// idles, as in BenchmarkIdle. It exits when its stdin closes. It does
 // nothing in a normal test run.
 func TestIdleHelper(t *testing.T) {
 	role := os.Getenv(idleRoleEnv)
@@ -217,10 +223,10 @@ func TestIdleHelper(t *testing.T) {
 	}
 	switch role {
 	case "server":
-		url, accepted := serve(t, lib, 1)
+		url, accepted := serve(t, lib, 1, false)
 		go func() {
 			for c := range accepted {
-				go c.read()
+				c.idle()
 			}
 		}()
 		fmt.Println(url)
@@ -230,7 +236,7 @@ func TestIdleHelper(t *testing.T) {
 			if err != nil {
 				fail("dial %d: %v", i, err)
 			}
-			go c.read()
+			c.idle()
 		}
 		fmt.Println(idleReady)
 	default:
