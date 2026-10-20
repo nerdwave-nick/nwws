@@ -111,15 +111,60 @@ func (fr *frameReader) readHeader() (frameHeader, error) {
 	if _, err := io.ReadFull(fr.r, b[:2]); err != nil {
 		return frameHeader{}, err
 	}
-	h, n, err := fr.headerStart(b[0], b[1])
-	if err != nil {
+	h := frameHeader{
+		fin:    b[0]&finBit != 0,
+		rsv:    b[0] & rsvBits,
+		opcode: opcode(b[0] & 0x0f),
+		masked: b[1]&maskBit != 0,
+	}
+	if err := checkHeader(h.fin, h.rsv, h.opcode, fr.rsv); err != nil {
 		return frameHeader{}, err
 	}
-	if _, err := io.ReadFull(fr.r, b[2:n]); err != nil {
+	if h.masked != fr.server {
+		if fr.server {
+			return frameHeader{}, errMaskRequired
+		}
+		return frameHeader{}, errUnexpectedMask
+	}
+
+	// A 7-bit length of 126 or 127 announces a 16- or 64-bit length. Longer
+	// encodings than needed are accepted.
+	length7 := b[1] &^ maskBit
+	extLen := 0
+	switch length7 {
+	case 126:
+		extLen = 2
+	case 127:
+		extLen = 8
+	}
+	n := extLen
+	if h.masked {
+		n += 4
+	}
+	if _, err := io.ReadFull(fr.r, b[2:2+n]); err != nil {
 		return frameHeader{}, noEOF(err)
 	}
-	if err := fr.headerEnd(&h, b[:n]); err != nil {
-		return frameHeader{}, err
+	switch extLen {
+	case 0:
+		h.length = int64(length7)
+	case 2:
+		h.length = int64(binary.BigEndian.Uint16(b[2:]))
+	case 8:
+		l := binary.BigEndian.Uint64(b[2:])
+		if l>>63 != 0 {
+			return frameHeader{}, errLengthMSB
+		}
+		h.length = int64(l)
+	}
+	if h.masked {
+		copy(h.key[:], b[2+extLen:])
+	}
+
+	if h.opcode.isControl() && h.length > maxControlPayload {
+		return frameHeader{}, errControlTooLong
+	}
+	if limit := fr.limit(); h.length > limit {
+		return frameHeader{}, fmt.Errorf("%w: %d bytes, limit %d", errFrameTooLarge, h.length, limit)
 	}
 	return h, nil
 }
