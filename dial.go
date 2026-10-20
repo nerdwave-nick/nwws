@@ -46,6 +46,11 @@ type DialOptions struct {
 	// HTTP CONNECT proxy of the caller's, or with a custom TCP keepalive.
 	// It receives Dial's context and should give up when it ends. For wss,
 	// TLS runs on top of the returned connection.
+	//
+	// For the best latency, the connection should support read deadlines:
+	// Read reads frames itself and interrupts its network read through
+	// one when its context ends. If SetReadDeadline fails, the connection
+	// reads every message in a goroutine of its own instead; see [Conn].
 	NetDialContext func(ctx context.Context, network, addr string) (net.Conn, error)
 
 	// ConnOptions configures the dialed connection.

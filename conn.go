@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // MessageType is the type of a data message (RFC 6455 §5.6).
@@ -40,12 +41,16 @@ var ErrClosed = errors.New("nwws: connection closed")
 // Conn is a WebSocket connection, on the server or the client side. Read,
 // Write, Close and CloseNow may be called from any goroutine.
 //
-// A goroutine of the connection reads frames: it reassembles messages,
-// answers pings and takes part in the closing handshake. It queues
-// complete messages for Read and keeps reading while they take less than
-// the read-ahead budget, [ConnOptions.ReadBuffer]. Once the budget is
-// full, it reads no further frames until Read makes room, so keep calling
-// Read for as long as the connection is in use.
+// While no message waits to be read, Read reads frames itself, in the
+// calling goroutine: it reassembles the next message, answers pings and
+// takes part in the closing handshake. When no Read has run for a couple
+// of milliseconds, a goroutine of the connection takes over until the
+// next Read comes. It queues complete messages for Read and keeps reading
+// while they take less than the read-ahead budget,
+// [ConnOptions.ReadBuffer]. Once the budget is full, it reads no further
+// frames until Read makes room, so keep calling Read for as long as the
+// connection is in use. Compressed connections, and those whose read
+// deadline cannot be set, always read frames in that goroutine.
 //
 // Frames are written one at a time, so concurrent writers never
 // interleave. A Write on an idle connection writes its frame itself;
@@ -58,8 +63,11 @@ type Conn struct {
 	subprotocol string
 	cfg         connConfig
 
-	// Read side, owned by readLoop.
+	// Read side, owned by the holder of the reader role; see role.
 	fr        frameReader
+	br        *bufio.Reader // the network connection, read by fr
+	rs        readState
+	direct    bool          // Read may read frames itself; see newConn
 	inflate   *inflater     // decompresses messages; nil without compression
 	closeRcvd chan struct{} // closed when the peer's close frame arrives
 	readDone  chan struct{}
@@ -87,11 +95,22 @@ type Conn struct {
 	rq         msgQueue
 	readers    int           // Reads waiting for a message
 	rwait      int           // waitNone, or what readLoop waits for Read to do
-	rend       bool          // readLoop queues no more messages
+	rend       bool          // the read side has ended: no more messages follow
 	discarding atomic.Bool   // Close has started: messages are dropped; set under rmu
 	pooling    atomic.Bool   // ReadInto was called: message memory comes from the pool
 	avail      chan struct{} // wakes a waiting Read; buffered
 	room       chan struct{} // wakes readLoop waiting for Read; buffered
+	role       int           // who reads frames: roleFree, roleLoop, roleRead or roleEnded
+	takeover   *time.Timer   // gives a free reader role to the read goroutine
+	armed      bool          // takeover is armed
+	freedAt    time.Time     // when the reader role was last freed
+
+	// Interrupting the network read of a Read whose ctx is done; see watch.
+	imu         sync.Mutex
+	idone       <-chan struct{} // Done of the ctx with an AfterFunc registered
+	istop       func() bool     // unregisters it
+	ireading    bool            // a Read reads frames with idone
+	interrupted bool            // the read deadline was set to interrupt it
 
 	closed    chan struct{} // closed with the network connection
 	closeOnce sync.Once
@@ -103,7 +122,10 @@ type Conn struct {
 }
 
 // newConn wraps nc, a connection after the opening handshake, and starts
-// its read and write goroutines.
+// its write goroutine. The first Read reads frames itself, or, after the
+// takeover delay without one, the read goroutine. Without compression and
+// with read deadlines, which interrupt a Read whose ctx is done, Read
+// reads frames itself; otherwise only the read goroutine does.
 func newConn(nc net.Conn, server bool, subprotocol string, cfg connConfig) *Conn {
 	if cfg.readBuffer <= 0 {
 		cfg.readBuffer = DefaultReadBuffer
@@ -123,10 +145,18 @@ func newConn(nc net.Conn, server bool, subprotocol string, cfg connConfig) *Conn
 		closed:      make(chan struct{}),
 	}
 	c.live = newLiveness(c)
-	c.fr = frameReader{r: bufio.NewReader(c.live.reader(nc)), server: server}
+	c.br = bufio.NewReader(c.live.reader(nc))
+	c.fr = frameReader{r: c.br, server: server}
 	c.fw = frameWriter{server: server} // writes to wbuf; see takeWriteBuffer
 	c.initCompression()
-	go c.readLoop()
+	c.direct = c.inflate == nil && nc.SetReadDeadline(time.Time{}) == nil
+	c.rmu.Lock()
+	if c.direct {
+		c.freeRole()
+	} else {
+		c.startLoop()
+	}
+	c.rmu.Unlock()
 	go c.writeLoop()
 	return c
 }

@@ -142,9 +142,10 @@ func (c *Conn) waitDone(want int) bool {
 }
 
 // next returns the next message for Read, waiting for one until ctx is
-// done. Once the read goroutine has ended and the queue is empty, it
-// returns why the connection ended.
-func (c *Conn) next(ctx context.Context) (message, error) {
+// done. While the queue is empty and nobody reads frames, Read reads them
+// itself; a ReadInto, with into, reads into buf. Once the read side has
+// ended and the queue is empty, it returns why the connection ended.
+func (c *Conn) next(ctx context.Context, buf []byte, into bool) (message, error) {
 	c.rmu.Lock()
 	for {
 		if c.rq.n > 0 {
@@ -154,10 +155,12 @@ func (c *Conn) next(ctx context.Context) (message, error) {
 				c.rwait = waitNone
 				notify(c.room) // under rmu, so awaitRead can take back a wake-up it gave up on
 			}
-			wake := c.rq.n > 0 && c.readers > 0
+			// Another waiting Read takes the next message, or the free
+			// reader role.
+			wake := c.readers > 0 && (c.rq.n > 0 || c.role == roleFree)
 			c.rmu.Unlock()
 			if wake {
-				notify(c.avail) // for another waiting Read
+				notify(c.avail)
 			}
 			return m, nil
 		}
@@ -167,6 +170,11 @@ func (c *Conn) next(ctx context.Context) (message, error) {
 			}
 			c.rmu.Unlock()
 			return message{}, c.endErr()
+		}
+		if c.role == roleFree {
+			c.role = roleRead
+			c.rmu.Unlock()
+			return c.readAsCaller(ctx, buf, into)
 		}
 		c.readers++
 		c.rmu.Unlock()
@@ -208,6 +216,9 @@ func (c *Conn) discardMessages() {
 	if c.rwait != waitNone {
 		c.rwait = waitNone
 		notify(c.room)
+	}
+	if c.role == roleFree {
+		c.startLoop() // to see the peer's close frame
 	}
 }
 

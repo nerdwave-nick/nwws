@@ -1,6 +1,7 @@
 package nwws
 
 import (
+	"bufio"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -110,20 +111,63 @@ func (fr *frameReader) readHeader() (frameHeader, error) {
 	if _, err := io.ReadFull(fr.r, b[:2]); err != nil {
 		return frameHeader{}, err
 	}
-	h := frameHeader{
+	_, n, err := fr.decodeHeader(b[:2])
+	if err != nil {
+		return frameHeader{}, err
+	}
+	if _, err := io.ReadFull(fr.r, b[2:n]); err != nil {
+		return frameHeader{}, noEOF(err)
+	}
+	h, _, err := fr.decodeHeader(b[:n])
+	return h, err
+}
+
+// peekHeader is readHeader on a bufio.Reader, which consumes the header
+// only once all of it has arrived and is valid. A read that fails, as on
+// a read deadline, leaves br at the start of the frame, so that reading
+// can resume there.
+func (fr *frameReader) peekHeader(br *bufio.Reader) (frameHeader, error) {
+	b, err := br.Peek(2)
+	if err != nil {
+		if len(b) > 0 {
+			err = noEOF(err)
+		}
+		return frameHeader{}, err
+	}
+	_, n, err := fr.decodeHeader(b)
+	if err != nil {
+		return frameHeader{}, err
+	}
+	if b, err = br.Peek(n); err != nil {
+		return frameHeader{}, noEOF(err)
+	}
+	h, _, err := fr.decodeHeader(b)
+	if err != nil {
+		return frameHeader{}, err
+	}
+	_, _ = br.Discard(n)
+	return h, nil
+}
+
+// decodeHeader decodes the frame header at the start of b, which holds
+// at least its first two bytes, and returns the header's length n. When b
+// is shorter than n, it checks only the first two bytes and h is not
+// complete.
+func (fr *frameReader) decodeHeader(b []byte) (h frameHeader, n int, err error) {
+	h = frameHeader{
 		fin:    b[0]&finBit != 0,
 		rsv:    b[0] & rsvBits,
 		opcode: opcode(b[0] & 0x0f),
 		masked: b[1]&maskBit != 0,
 	}
 	if err := checkHeader(h.fin, h.rsv, h.opcode, fr.rsv); err != nil {
-		return frameHeader{}, err
+		return frameHeader{}, 0, err
 	}
 	if h.masked != fr.server {
 		if fr.server {
-			return frameHeader{}, errMaskRequired
+			return frameHeader{}, 0, errMaskRequired
 		}
-		return frameHeader{}, errUnexpectedMask
+		return frameHeader{}, 0, errUnexpectedMask
 	}
 
 	// A 7-bit length of 126 or 127 announces a 16- or 64-bit length. Longer
@@ -136,12 +180,12 @@ func (fr *frameReader) readHeader() (frameHeader, error) {
 	case 127:
 		extLen = 8
 	}
-	n := extLen
+	n = 2 + extLen
 	if h.masked {
 		n += 4
 	}
-	if _, err := io.ReadFull(fr.r, b[2:2+n]); err != nil {
-		return frameHeader{}, noEOF(err)
+	if len(b) < n {
+		return h, n, nil
 	}
 	switch extLen {
 	case 0:
@@ -151,7 +195,7 @@ func (fr *frameReader) readHeader() (frameHeader, error) {
 	case 8:
 		l := binary.BigEndian.Uint64(b[2:])
 		if l>>63 != 0 {
-			return frameHeader{}, errLengthMSB
+			return frameHeader{}, 0, errLengthMSB
 		}
 		h.length = int64(l)
 	}
@@ -160,12 +204,12 @@ func (fr *frameReader) readHeader() (frameHeader, error) {
 	}
 
 	if h.opcode.isControl() && h.length > maxControlPayload {
-		return frameHeader{}, errControlTooLong
+		return frameHeader{}, 0, errControlTooLong
 	}
 	if limit := fr.limit(); h.length > limit {
-		return frameHeader{}, fmt.Errorf("%w: %d bytes, limit %d", errFrameTooLarge, h.length, limit)
+		return frameHeader{}, 0, fmt.Errorf("%w: %d bytes, limit %d", errFrameTooLarge, h.length, limit)
 	}
-	return h, nil
+	return h, n, nil
 }
 
 // readFrame reads one frame and returns its header and unmasked payload.
