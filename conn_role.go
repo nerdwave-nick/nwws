@@ -19,9 +19,14 @@ import (
 // goroutine; one that comes later gets a message the read goroutine
 // queued, and takes the role back. A shorter delay makes the timer fire,
 // and the read goroutine start, more often in a loop of Reads that does
-// some work per message: a 1 ms delay cost about 3 % on 1 MiB ReadInto
-// loops against 100 ms. A longer one leaves pings unanswered and nothing
+// some work per message. A longer one leaves pings unanswered and nothing
 // read ahead for that long after the application stops reading.
+//
+// Measured against a 100 ms delay, interleaved on GitHub runners (runs
+// 39418354013 and 39442434243): 2 ms costs about 2 to 4 % on loops of
+// 1 MiB ReadInto, and nothing measurable on round trips, throughput and
+// smaller reads. In the research for this design, 1 ms cost about 3 %
+// on the same loops.
 const takeoverDelay = 2 * time.Millisecond
 
 // Holders of the reader role, in Conn.role. Whoever holds it reads
