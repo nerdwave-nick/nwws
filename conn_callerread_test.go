@@ -37,12 +37,19 @@ func tlsPair(t *testing.T) (server, client net.Conn) {
 // given fragments.
 func clientText(t *testing.T, frags ...[]byte) []byte {
 	t.Helper()
+	return clientMessage(t, opText, frags...)
+}
+
+// clientMessage returns the client frames of a message of type op split
+// into the given fragments.
+func clientMessage(t *testing.T, typ opcode, frags ...[]byte) []byte {
+	t.Helper()
 	var buf bytes.Buffer
 	fw := frameWriter{w: &buf}
 	for i, f := range frags {
 		op := opContinuation
 		if i == 0 {
-			op = opText
+			op = typ
 		}
 		if err := fw.writeFrame(i == len(frags)-1, 0, op, f); err != nil {
 			t.Fatal(err)
@@ -65,24 +72,29 @@ func readEither(ctx context.Context, c *Conn, into bool, buf []byte) ([]byte, er
 // where it stopped: in a header, in a payload, between the fragments of a
 // message or in the middle of a rune. The next Read gets the whole
 // message, and the connection stays in sync, over TCP and TLS, for Read
-// and ReadInto.
+// and ReadInto, for text and binary messages.
 func TestReadCancelledMidFrame(t *testing.T) {
 	for _, tr := range []struct {
 		name string
 		pair func(*testing.T) (net.Conn, net.Conn)
 	}{{"tcp", tcpPair}, {"tls", tlsPair}} {
-		for _, into := range []bool{false, true} {
+		for _, tc := range []struct {
+			into bool
+			typ  opcode
+		}{{false, opText}, {true, opText}, {false, opBinary}, {true, opBinary}} {
+			into := tc.into
 			name := tr.name + "/Read"
 			if into {
 				name = tr.name + "/ReadInto"
 			}
+			name += "/" + MessageType(tc.typ).String()
 			t.Run(name, func(t *testing.T) {
 				s, cl := tr.pair(t)
 				c := newConn(s, true, "", testConfig())
 				t.Cleanup(func() { c.closeNow(ErrClosed); c.wait() })
 				peer := newRawPeer(t, cl, false)
 				a, b := bytes.Repeat([]byte("a"), 3000), bytes.Repeat([]byte("é"), 2000)
-				wire := clientText(t, a, b)
+				wire := clientMessage(t, tc.typ, a, b)
 				want := append(bytes.Clone(a), b...)
 				buf := make([]byte, 0, 1<<16)
 				// Cut inside the first header, inside the first payload,

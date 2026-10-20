@@ -136,7 +136,7 @@ func (c *Conn) readControlFrame() error {
 	rs := &c.rs
 	payload := rs.ctl[:rs.h.length]
 	for rs.off < rs.h.length {
-		if err := c.readChunk(payload); err != nil {
+		if err := c.readChunk(payload, true); err != nil {
 			return err
 		}
 	}
@@ -145,14 +145,18 @@ func (c *Conn) readControlFrame() error {
 }
 
 // readDataPayload reads the rest of a data frame's payload into the
-// message. Text is checked for UTF-8 after every read from the network,
-// so invalid text fails the connection at the first bad bytes.
+// message. Text is unmasked and checked for UTF-8 after every read from
+// the network, so invalid text fails the connection at the first bad
+// bytes. Binary payloads are unmasked once the frame is complete, so that
+// reading drains the network connection without pausing to unmask.
 func (c *Conn) readDataPayload() error {
 	rs := &c.rs
 	start := len(rs.msg) - int(rs.h.length)
+	payload := rs.msg[start:]
+	text := rs.typ == opText
 	for rs.off < rs.h.length {
-		err := c.readChunk(rs.msg[start:])
-		if rs.typ == opText && !rs.text.valid(rs.msg[:start+int(rs.off)], false) {
+		err := c.readChunk(payload, text)
+		if text && !rs.text.valid(rs.msg[:start+int(rs.off)], false) {
 			return &protocolError{code: StatusInvalidFramePayloadData, err: errInvalidUTF8}
 		}
 		if err != nil {
@@ -160,19 +164,22 @@ func (c *Conn) readDataPayload() error {
 		}
 	}
 	rs.inFrame = false
-	if rs.typ == opText && !rs.text.valid(rs.msg, rs.h.fin) {
+	if text && !rs.text.valid(rs.msg, rs.h.fin) {
 		return &protocolError{code: StatusInvalidFramePayloadData, err: errInvalidUTF8}
+	}
+	if !text && rs.h.masked {
+		maskBytes(rs.h.key, 0, payload)
 	}
 	return nil
 }
 
 // readChunk reads what the network delivers of payload, the current
-// frame's whole payload, from rs.off on, and unmasks it.
-func (c *Conn) readChunk(payload []byte) error {
+// frame's whole payload, from rs.off on, and unmasks it with unmask.
+func (c *Conn) readChunk(payload []byte, unmask bool) error {
 	rs := &c.rs
 	p := payload[rs.off:]
 	n, err := c.br.Read(p)
-	if rs.h.masked {
+	if unmask && rs.h.masked {
 		maskBytes(rs.h.key, int(rs.off&3), p[:n])
 	}
 	rs.off += int64(n)
