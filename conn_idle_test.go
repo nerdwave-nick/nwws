@@ -109,13 +109,22 @@ func TestIdleConnectionCost(t *testing.T) {
 }
 
 // idleSample returns the live heap after two collections and the number
-// of goroutines.
+// of goroutines that stay. A connection's liveness watch timer is a
+// goroutine only while it fires, and timers that came due during the
+// collections fire together after them, so a single count can include a
+// few of those; the lowest of several counts, a millisecond apart, does
+// not.
 func idleSample() (heap uint64, goroutines int) {
 	runtime.GC()
 	runtime.GC()
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
-	return ms.HeapAlloc, runtime.NumGoroutine()
+	goroutines = runtime.NumGoroutine()
+	for range 20 {
+		time.Sleep(time.Millisecond)
+		goroutines = min(goroutines, runtime.NumGoroutine())
+	}
+	return ms.HeapAlloc, goroutines
 }
 
 // startIdleClient runs TestIdleClient in a child process, which dials url
