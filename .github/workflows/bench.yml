@@ -1,0 +1,69 @@
+name: Benchmarks
+
+# Compares nwws with coder/websocket and gorilla/websocket; see
+# benchmarks/compare. Run by hand only: the numbers depend on the runner.
+on:
+  workflow_dispatch:
+    inputs:
+      count:
+        description: Runs of each benchmark (go test -count)
+        type: number
+        default: 10
+      benchtime:
+        description: Time or iterations per run (go test -benchtime)
+        type: string
+        default: 1s
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: benchmarks/compare/go.sum
+      - name: Run the benchmarks
+        working-directory: benchmarks/compare
+        env:
+          COUNT: ${{ inputs.count }}
+          BENCHTIME: ${{ inputs.benchtime }}
+        run: |
+          set -o pipefail
+          # No -benchmem: the benchmarks report allocations themselves,
+          # and it would add zero B/op rows for BenchmarkIdle.
+          go test -run '^$' -bench . -count "$COUNT" -benchtime "$BENCHTIME" -timeout 60m | tee bench.txt
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@latest
+      - name: Compare the libraries
+        working-directory: benchmarks/compare
+        run: |
+          benchstat -col /lib bench.txt | tee benchstat.txt
+          {
+            echo '## nwws vs coder/websocket vs gorilla/websocket'
+            echo
+            echo '```'
+            echo "CPU:   $(grep -m1 '^model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ *//')"
+            echo "nproc: $(nproc)"
+            echo "Go:    $(go version)"
+            echo
+            cat benchstat.txt
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+      - name: Upload the results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: bench-results
+          path: |
+            benchmarks/compare/bench.txt
+            benchmarks/compare/benchstat.txt
+          if-no-files-found: ignore
