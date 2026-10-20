@@ -10,6 +10,62 @@ server for Go, built only on the standard library. Released under the
 go get github.com/nerdwave-nick/nwws
 ```
 
+## Status and comparison
+
+nwws is young. It is at v0.1.0, has one author and no production users yet,
+and its API may still change before v1. Treat it accordingly.
+
+So far it has been compared only with
+[coder/websocket](https://github.com/coder/websocket) v1.8.15 and
+[gorilla/websocket](https://github.com/gorilla/websocket) v1.5.3, in
+October 2026. Other Go implementations have not been compared, including:
+- [gws](https://github.com/lxzan/gws);
+- [gobwas/ws](https://github.com/gobwas/ws);
+- [fasthttp/websocket](https://github.com/fasthttp/websocket);
+- `golang.org/x/net/websocket`.
+
+Nothing here claims nwws is better than those.
+
+**Conformance.** All three libraries ran the
+[Autobahn test suite](https://github.com/crossbario/autobahn-testsuite) with
+the same configuration, as server and as client (see
+[Autobahn conformance gate](#autobahn-conformance-gate)). Each cell shows
+server / client:
+
+| Library | Plain, 301 cases per side | permessage-deflate, 216 cases per side |
+| --- | --- | --- |
+| nwws v0.1.0 | 298 OK, 3 INFORMATIONAL / the same | 216 OK / 216 OK |
+| coder/websocket v1.8.15 | 222 OK, 76 FAILED, 3 INFORMATIONAL / the same | 180 OK, 36 UNIMPLEMENTED / 144 OK, 72 UNIMPLEMENTED |
+| gorilla/websocket v1.5.3 | 223 OK, 75 FAILED, 3 INFORMATIONAL / the same | 216 OK / 36 OK, 108 FAILED, 72 UNIMPLEMENTED |
+
+Notes on the table:
+- **UTF-8 failures are by design.** Most of coder's and gorilla's failures
+  are the 75 UTF-8 cases. Both leave UTF-8 validation of text messages to the
+  application. With validation added in the application, both reach 4
+  NON-STRICT cases (6.4.1–6.4.4), because a check on the whole message cannot
+  fail early inside a frame.
+- **coder** also fails case 7.5.1, a close reason that is not UTF-8.
+- **gorilla's compression** always negotiates without context takeover. Its
+  client fails the compressed cases at the handshake.
+- **INFORMATIONAL.** For nwws, the 3 INFORMATIONAL cases are 7.1.6, 7.13.1
+  and 7.13.2. The suite defines no stricter outcome for these cases.
+
+**Performance.** The only head-to-head measurement so far used the code
+before v0.1.0. At that point nwws was behind coder and gorilla on three
+things:
+- throughput with a single writer;
+- 256 KiB messages;
+- memory and goroutines per idle connection.
+
+It was ahead with many concurrent writers. v0.1.0 improved each of the three
+gaps against nwws's own earlier code:
+- **Single-writer throughput:** 2.28× at 300 B, with 0 allocations per write.
+- **Large messages:** `ReadInto` reads without allocating.
+- **Idle connections:** 8 KB and 2 goroutines per idle server connection,
+  down from about 29 KB and 3.
+
+v0.1.0 has not yet been compared with the other libraries again.
+
 ## API
 
 | Identifier | Purpose |
