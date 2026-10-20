@@ -350,12 +350,13 @@ func TestReadFallbackWithoutDeadlines(t *testing.T) {
 
 // A Read that waits while the read goroutine holds the reader role is
 // woken when the read goroutine hands the role over, also when the
-// message the read goroutine queued last went to another Read. Messages
-// larger than the read-ahead budget make the read goroutine wait for Read
-// after each, which is when that happens. Otherwise each message waits
-// for the takeover delay.
+// message the read goroutine queued last went to another Read. A
+// read-ahead budget of one byte makes the read goroutine wait for Read
+// after each message, which is when that happens. Otherwise each message
+// waits for the takeover delay; the messages are small, so that reading
+// them takes far less, also with the race detector.
 func TestHandOffWakesWaitingRead(t *testing.T) {
-	const count, size = 200, 16 << 10
+	const count, size = 200, 64
 	c, peer := startConn(t, true, readAheadConfig(1))
 	waitFor(t, "the read goroutine to read frames", func() bool {
 		c.rmu.Lock()
@@ -373,8 +374,9 @@ func TestHandOffWakesWaitingRead(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// A message waiting for the takeover delay takes at least that long.
-	if d := time.Since(start); d >= count*takeoverDelay/2 {
+	// Each message waiting for the takeover delay would take at least
+	// that long.
+	if d := time.Since(start); d >= count*takeoverDelay*3/4 {
 		t.Fatalf("%d messages took %v: Reads waited for the takeover delay", count, d)
 	}
 	if err := waitErr(t, written); err != nil {
