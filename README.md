@@ -50,21 +50,43 @@ Notes on the table:
 - **INFORMATIONAL.** For nwws, the 3 INFORMATIONAL cases are 7.1.6, 7.13.1
   and 7.13.2. The suite defines no stricter outcome for these cases.
 
-**Performance.** The only head-to-head measurement so far used the code
-before v0.1.0. At that point nwws was behind coder and gorilla on three
-things:
-- throughput with a single writer;
-- 256 KiB messages;
-- memory and goroutines per idle connection.
+**Performance.** These results come from the
+[comparison benchmarks](benchmarks/compare). They were run with the manual
+`bench.yml` workflow on a GitHub runner (AMD EPYC 7763, 4 vCPU, Go 1.27),
+over plaintext loopback TCP. Each figure is a median of 10 runs. Settings:
+- binary messages;
+- compression off;
+- nwws liveness off;
+- each library's own concurrency rules.
 
-It was ahead with many concurrent writers. v0.1.0 improved each of the three
-gaps against nwws's own earlier code:
-- **Single-writer throughput:** 2.28× at 300 B, with 0 allocations per write.
-- **Large messages:** `ReadInto` reads without allocating.
-- **Idle connections:** 8 KB and 2 goroutines per idle server connection,
-  down from about 29 KB and 3.
+Versions: nwws v0.1.0, coder v1.8.15, gorilla v1.5.3 (October 2026).
 
-v0.1.0 has not yet been compared with the other libraries again.
+| Benchmark | nwws | coder | gorilla |
+| --- | --- | --- | --- |
+| Round trip, 300 B (lower is better) | 71.6 µs | 25.7 µs | **20.3 µs** |
+| One writer, 300 B | 29.2 MiB/s | 29.1 MiB/s | 30.8 MiB/s |
+| One writer, 64 KiB | **757 MiB/s** | 355 MiB/s | 380 MiB/s |
+| 16 concurrent writers, 300 B | **98.3 MiB/s** | 16.8 MiB/s | 25.8 MiB/s |
+| 1 MiB reads, whole message | 1.69 GiB/s (±41 %) | 1.34 GiB/s | 1.66 GiB/s |
+| 1 MiB reads, reused buffer | 3.73 GiB/s | **5.13 GiB/s** | 4.84 GiB/s |
+| Allocations per round trip | 6 | 24 | **3** |
+| Idle connection: heap | **6.6 KB** | 10.8 KB | 8.9 KB |
+| Idle connection: goroutines | 3 | **1** | **1** |
+
+What the table shows:
+- **Round-trip latency.** nwws is about 3× slower than both. The likely
+  cause, not yet profiled, is that each message passes between nwws's
+  internal read and write goroutines and the caller.
+- **Reading into a reused buffer.** nwws is 23–27 % slower, because
+  `ReadInto` copies out of nwws's read-ahead buffer.
+- **Bulk and concurrent writing.** nwws is clearly ahead, because writers
+  share flushes and an idle `Write` writes directly.
+- **Idle connections.** nwws keeps the least heap, but runs three goroutines
+  per connection against one. Goroutine stacks are not in the heap figure,
+  so its total idle memory is not lower.
+
+Improving latency and `ReadInto` is the next planned work. Run the workflow
+yourself from the Actions tab ("Benchmarks") to reproduce these numbers.
 
 ## API
 
