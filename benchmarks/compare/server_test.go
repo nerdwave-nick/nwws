@@ -12,11 +12,16 @@ import (
 	"time"
 )
 
-// serve starts a loopback HTTP server that upgrades every request with
-// lib and sends each server conn on the returned channel, which buffers
-// up to backlog conns. It returns the server's ws URL.
-func serve(tb testing.TB, lib library, backlog int) (string, <-chan conn) {
+// serve starts a loopback server that upgrades every request with lib
+// and sends each server conn on the returned channel, which buffers up
+// to backlog conns. It returns the server's ws URL. The server is an
+// httptest server, or the library's own if it has one; ownPayload is
+// passed to that.
+func serve(tb testing.TB, lib library, backlog int, ownPayload bool) (string, <-chan conn) {
 	tb.Helper()
+	if lib.serve != nil {
+		return lib.serve(tb, backlog, ownPayload)
+	}
 	accepted := make(chan conn, backlog)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := lib.upgrade(w, r)
@@ -45,7 +50,7 @@ func accept(tb testing.TB, accepted <-chan conn) conn {
 // pair returns both sides of a connection of lib.
 func pair(tb testing.TB, lib library) (client, server conn) {
 	tb.Helper()
-	url, accepted := serve(tb, lib, 1)
+	url, accepted := serve(tb, lib, 1, false)
 	client, err := lib.dial(url)
 	if err != nil {
 		tb.Fatal(err)
@@ -56,36 +61,28 @@ func pair(tb testing.TB, lib library) (client, server conn) {
 	return client, server
 }
 
-// echo sends every message that c reads back to the peer, until reading
-// or writing fails. It then closes c, so that the peer fails at once
-// instead of waiting for its deadline.
+// echo makes c send every message it reads back to the peer, until
+// reading or writing fails. c is then closed, so that the peer fails at
+// once instead of waiting for its deadline.
 func echo(c conn) {
-	defer c.close()
-	for {
-		p, err := c.readReuse()
-		if err != nil {
-			return
-		}
-		if err := c.write(p); err != nil {
-			return
-		}
-	}
+	c.receive(false, func(p []byte) error { return c.write(p) })
 }
 
-// drain reads n messages of size bytes from c, discarding them. On
-// failure it closes c, so that the peer fails at once.
-func drain(c conn, n, size int) error {
-	for i := range n {
-		p, err := c.readReuse()
-		if err == nil && len(p) != size {
-			err = fmt.Errorf("message %d has %d bytes, want %d", i, len(p), size)
+// drain makes c read n messages of size bytes, discarding them. The
+// channel receives the result. On failure c is closed, so that the peer
+// fails at once.
+func drain(c conn, n, size int) <-chan error {
+	i := 0
+	return c.receive(false, func(p []byte) error {
+		if len(p) != size {
+			return fmt.Errorf("message %d has %d bytes, want %d", i, len(p), size)
 		}
-		if err != nil {
-			c.close()
-			return err
+		i++
+		if i == n {
+			return errStop
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 // rawDial opens a WebSocket connection to url without a WebSocket
@@ -93,7 +90,7 @@ func drain(c conn, n, size int) error {
 // Protocols, and returns the network connection, with a deadline.
 func rawDial(tb testing.TB, url string) net.Conn {
 	tb.Helper()
-	host := strings.TrimPrefix(url, "ws://")
+	host, _, _ := strings.Cut(strings.TrimPrefix(url, "ws://"), "/")
 	nc, err := net.DialTimeout("tcp", host, handshakeTimeout)
 	if err != nil {
 		tb.Fatal(err)

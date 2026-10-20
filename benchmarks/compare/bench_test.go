@@ -1,6 +1,7 @@
 package compare
 
 import (
+	"fmt"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -38,7 +39,7 @@ func BenchmarkRoundTrip(b *testing.B) {
 	forEachLib(b, func(b *testing.B, lib library) {
 		b.Run(sizeName(smallSize), func(b *testing.B) {
 			client, server := pair(b, lib)
-			go echo(server)
+			echo(server)
 			msg := make([]byte, smallSize)
 			b.ReportAllocs()
 			b.ResetTimer()
@@ -67,8 +68,7 @@ func BenchmarkThroughput(b *testing.B) {
 			b.Run(sizeName(size), func(b *testing.B) {
 				client, server := pair(b, lib)
 				n := b.N
-				done := make(chan error, 1)
-				go func() { done <- drain(server, n, size) }()
+				done := drain(server, n, size)
 				msg := make([]byte, size)
 				b.SetBytes(int64(size))
 				b.ReportAllocs()
@@ -88,7 +88,7 @@ func BenchmarkThroughput(b *testing.B) {
 
 // BenchmarkConcurrentWriters measures 16 client goroutines writing 300 B
 // messages on one connection to a server that reads and discards them.
-// gorilla's writers take turns on a mutex. The time runs until the server
+// gorilla's and gobwas's writers take turns on a mutex. The time runs until the server
 // has read the last message. allocs/op counts both sides.
 func BenchmarkConcurrentWriters(b *testing.B) {
 	forEachLib(b, func(b *testing.B, lib library) {
@@ -96,8 +96,7 @@ func BenchmarkConcurrentWriters(b *testing.B) {
 			b.Run(sizeName(smallSize), func(b *testing.B) {
 				client, server := pair(b, lib)
 				n := int64(b.N)
-				done := make(chan error, 1)
-				go func() { done <- drain(server, b.N, smallSize) }()
+				done := drain(server, b.N, smallSize)
 				msg := make([]byte, smallSize)
 				var next atomic.Int64
 				var wg sync.WaitGroup
@@ -133,27 +132,33 @@ func BenchmarkConcurrentWriters(b *testing.B) {
 // raw client, not a WebSocket library, sends as fast as it can in single
 // masked frames, so that only the read side differs between libraries.
 // api=whole reads with the whole-message API, which returns a new slice
-// for every message (nwws Read, coder Read, gorilla ReadMessage);
-// api=reuse reads into a buffer the application reuses (nwws ReadInto,
-// coder Reader and gorilla NextReader into a reused bytes.Buffer).
+// for every message (nwws Read, coder Read, gorilla ReadMessage, gobwas
+// wsutil.Reader and io.ReadAll as in wsutil.ReadData, nbio handler with
+// the payload left to the application); api=reuse reads into a buffer
+// the application reuses (nwws ReadInto, coder Reader, gorilla
+// NextReader and gobwas wsutil.Reader into a reused bytes.Buffer, nbio
+// handler with ReleaseWebsocketPayload, which returns the buffer to
+// nbio's pool).
 func BenchmarkRead1MiB(b *testing.B) {
 	frame := maskedFrame(largeSize)
 	forEachLib(b, func(b *testing.B, lib library) {
 		for _, api := range []string{"whole", "reuse"} {
 			b.Run("api="+api, func(b *testing.B) {
-				url, accepted := serve(b, lib, 1)
+				url, accepted := serve(b, lib, 1, api == "whole")
 				nc := rawDial(b, url)
 				server := accept(b, accepted)
 				b.Cleanup(server.close)
-				read := server.read
-				if api == "reuse" {
-					read = server.readReuse
-				}
 				n := b.N
 				writeErr := make(chan error, 1)
 				b.SetBytes(largeSize)
 				b.ReportAllocs()
 				b.ResetTimer()
+				check := func(i int, p []byte) error {
+					if len(p) != largeSize {
+						return fmt.Errorf("message %d has %d bytes, want %d", i, len(p), largeSize)
+					}
+					return nil
+				}
 				go func() {
 					for range n {
 						if _, err := nc.Write(frame); err != nil {
@@ -163,13 +168,36 @@ func BenchmarkRead1MiB(b *testing.B) {
 					}
 					writeErr <- nil
 				}()
-				for range n {
-					p, err := read()
-					if err != nil {
-						b.Fatal(err)
+				if pc, ok := server.(puller); ok {
+					// The benchmark goroutine reads, as an application would.
+					read := pc.readReuse
+					if api == "whole" {
+						read = pc.read
 					}
-					if len(p) != largeSize {
-						b.Fatalf("message has %d bytes, want %d", len(p), largeSize)
+					for i := range n {
+						p, err := read()
+						if err == nil {
+							err = check(i, p)
+						}
+						if err != nil {
+							b.Fatal(err)
+						}
+					}
+				} else {
+					// nbio: its handler receives the messages.
+					i := 0
+					done := server.receive(api == "whole", func(p []byte) error {
+						if err := check(i, p); err != nil {
+							return err
+						}
+						i++
+						if i == n {
+							return errStop
+						}
+						return nil
+					})
+					if err := <-done; err != nil {
+						b.Fatal(err)
 					}
 				}
 				b.StopTimer()

@@ -3,9 +3,11 @@ package compare
 import (
 	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"net/http"
 	"sync"
+	"testing"
 	"time"
 
 	coder "github.com/coder/websocket"
@@ -36,28 +38,94 @@ var opTimeout = sync.OnceValue(func() time.Duration {
 type conn interface {
 	// write sends p as one binary message. Any goroutine may call it.
 	write(p []byte) error
-	// read returns the next message, read with the library's
-	// whole-message API.
-	read() ([]byte, error)
 	// readReuse returns the next message, read into a buffer that the
-	// conn reuses. The message is valid until the next readReuse.
+	// conn reuses. The message is valid until the next readReuse. Only
+	// one goroutine may call it, and not while receive is active.
 	readReuse() ([]byte, error)
+	// receive passes every message, in order, to f, which must not keep
+	// it. With whole, the library's whole-message API reads the
+	// messages; otherwise its buffer-reusing API. It returns at once.
+	// Delivery stops when f returns errStop, and then the channel
+	// receives nil; or when reading or f fails, and then c is closed and
+	// the channel receives the error.
+	//
+	// For the pull-based libraries an application goroutine reads in a
+	// loop and calls f; nbio calls f from its message handler.
+	receive(whole bool, f func(p []byte) error) <-chan error
+	// idle keeps the connection open and reading, as an application
+	// with no traffic does: for the pull-based libraries a goroutine
+	// blocked in a whole-message read, for nbio nothing, because its
+	// event loop reads.
+	idle()
 	// close closes the network connection, without the closing handshake.
 	close()
 }
+
+// errStop ends a receive without an error.
+var errStop = errors.New("stop receiving")
 
 // library opens connections of one WebSocket library.
 type library struct {
 	name    string
 	upgrade func(w http.ResponseWriter, r *http.Request) (conn, error)
 	dial    func(url string) (conn, error)
+	// serve, if set, replaces the httptest server and upgrade, for a
+	// library with a server of its own (nbio). With ownPayload, received
+	// messages belong to the application; otherwise the library reuses
+	// their buffers once the handler returns.
+	serve func(tb testing.TB, backlog int, ownPayload bool) (string, <-chan conn)
+	// prepare, if set, starts what the library shares between client
+	// connections, so that BenchmarkIdle does not count it.
+	prepare func()
 }
 
 var libraries = []library{
-	{"nwws", nwwsUpgrade, nwwsDial},
-	{"coder", coderUpgrade, coderDial},
-	{"gorilla", gorillaUpgrade, gorillaDial},
+	{name: "nwws", upgrade: nwwsUpgrade, dial: nwwsDial},
+	{name: "coder", upgrade: coderUpgrade, dial: coderDial},
+	{name: "gorilla", upgrade: gorillaUpgrade, dial: gorillaDial},
+	{name: "gobwas", upgrade: gobwasUpgrade, dial: gobwasDial},
+	{name: "nbio", dial: nbioDial, serve: nbioServe, prepare: nbioPrepare},
 }
+
+// puller is a conn of a pull-based library, whose application calls a
+// read function for every message.
+type puller interface {
+	// read returns the next message, read with the library's
+	// whole-message API.
+	read() ([]byte, error)
+	readReuse() ([]byte, error)
+	close()
+}
+
+// pullReceive implements conn.receive for a puller.
+func pullReceive(c puller, whole bool, f func(p []byte) error) <-chan error {
+	done := make(chan error, 1)
+	read := c.readReuse
+	if whole {
+		read = c.read
+	}
+	go func() {
+		for {
+			p, err := read()
+			if err == nil {
+				err = f(p)
+			}
+			if err == errStop {
+				done <- nil
+				return
+			}
+			if err != nil {
+				c.close()
+				done <- err
+				return
+			}
+		}
+	}()
+	return done
+}
+
+// pullIdle implements conn.idle for a puller.
+func pullIdle(c puller) { go func() { _, _ = c.read() }() }
 
 // nwws
 
@@ -112,6 +180,12 @@ func (x *nwwsConn) close() {
 	x.cancel()
 	_ = x.c.CloseNow()
 }
+
+func (x *nwwsConn) receive(whole bool, f func([]byte) error) <-chan error {
+	return pullReceive(x, whole, f)
+}
+
+func (x *nwwsConn) idle() { pullIdle(x) }
 
 // coder
 
@@ -169,6 +243,12 @@ func (x *coderConn) close() {
 	x.cancel()
 	_ = x.c.CloseNow()
 }
+
+func (x *coderConn) receive(whole bool, f func([]byte) error) <-chan error {
+	return pullReceive(x, whole, f)
+}
+
+func (x *coderConn) idle() { pullIdle(x) }
 
 // gorilla
 
@@ -233,3 +313,9 @@ func (x *gorillaConn) readReuse() ([]byte, error) {
 func (x *gorillaConn) close() {
 	_ = x.c.Close() // closes the network connection only
 }
+
+func (x *gorillaConn) receive(whole bool, f func([]byte) error) <-chan error {
+	return pullReceive(x, whole, f)
+}
+
+func (x *gorillaConn) idle() { pullIdle(x) }

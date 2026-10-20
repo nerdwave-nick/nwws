@@ -1,6 +1,6 @@
 name: Benchmarks
 
-# Compares nwws with coder/websocket and gorilla/websocket; see
+# Compares nwws with coder/websocket, gorilla/websocket, gobwas/ws and nbio; see
 # benchmarks/compare. Run by hand only: the numbers depend on the runner.
 on:
   workflow_dispatch:
@@ -48,7 +48,7 @@ jobs:
         run: |
           benchstat -col /lib bench.txt | tee benchstat.txt
           {
-            echo '## nwws vs coder/websocket vs gorilla/websocket'
+            echo '## nwws vs coder/websocket vs gorilla/websocket vs gobwas/ws vs nbio'
             echo
             echo '```'
             echo "CPU:   $(grep -m1 '^model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ *//')"
