@@ -48,6 +48,11 @@ func TestImportsOnlyStandardLibrary(t *testing.T) {
 			if base := d.Name(); name != "." && (base == "testdata" || strings.HasPrefix(base, ".") || strings.HasPrefix(base, "_")) {
 				return filepath.SkipDir
 			}
+			// A directory with a go.mod of its own is another module,
+			// such as benchmarks/compare.
+			if _, err := os.Stat(filepath.Join(name, "go.mod")); name != "." && err == nil {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !strings.HasSuffix(name, ".go") {
