@@ -103,7 +103,8 @@ type Conn struct {
 	role       int           // who reads frames: roleFree, roleLoop, roleRead or roleEnded
 	takeover   *time.Timer   // gives a free reader role to the read goroutine
 	armed      bool          // takeover is armed
-	freedAt    time.Time     // when the reader role was last freed
+	freed      uint64        // counts the times the reader role was freed
+	seen       uint64        // freed when takeover was armed or last fired
 
 	// Interrupting the network read of a Read whose ctx is done; see watch.
 	imu         sync.Mutex
@@ -211,7 +212,9 @@ func (c *Conn) Subprotocol() string { return c.subprotocol }
 
 // closeNow closes the network connection at once. It records err as the
 // reason the connection ended, unless a reason is already recorded, and
-// reports whether this call closed the connection.
+// reports whether this call closed the connection. When nobody reads
+// frames, it starts the read goroutine, which then ends the read side
+// without waiting for the takeover delay.
 func (c *Conn) closeNow(err error) (closed bool) {
 	c.setErr(err)
 	c.closeOnce.Do(func() {
@@ -219,6 +222,13 @@ func (c *Conn) closeNow(err error) (closed bool) {
 		close(c.closed)
 		_ = c.nc.Close()
 	})
+	if closed {
+		c.rmu.Lock()
+		if c.role == roleFree {
+			c.startLoop()
+		}
+		c.rmu.Unlock()
+	}
 	return closed
 }
 

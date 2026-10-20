@@ -9,7 +9,10 @@ import (
 
 // takeoverDelay is how long the reader role stays free, with no Read
 // reading frames, before the read goroutine takes it to read ahead,
-// answer pings and see the peer's close frame.
+// answer pings and see the peer's close frame. The takeover comes after
+// one to two delays: the timer checks once per delay whether a Read
+// freed the role since its last check, which keeps the clock off the
+// path of every Read.
 //
 // It trades read-ahead against timer work. A Read that comes within the
 // delay reads the next message itself, with no wake-up of another
@@ -94,15 +97,16 @@ func (c *Conn) freeRole() {
 		return
 	}
 	c.role = roleFree
-	c.freedAt = time.Now()
+	c.freed++
 	switch {
 	case c.armed:
+		return
 	case c.takeover == nil:
 		c.takeover = time.AfterFunc(takeoverDelay, c.takeoverFired)
 	default:
 		c.takeover.Reset(takeoverDelay)
 	}
-	c.armed = true
+	c.armed, c.seen = true, c.freed
 }
 
 // startLoop gives the reader role to a new read goroutine. The caller
@@ -113,7 +117,7 @@ func (c *Conn) startLoop() {
 }
 
 // takeoverFired runs the read goroutine in the timer's goroutine once the
-// reader role has stayed free for takeoverDelay.
+// reader role has stayed free for a whole takeoverDelay.
 func (c *Conn) takeoverFired() {
 	c.rmu.Lock()
 	if c.role != roleFree {
@@ -121,8 +125,9 @@ func (c *Conn) takeoverFired() {
 		c.rmu.Unlock()
 		return
 	}
-	if wait := takeoverDelay - time.Since(c.freedAt); wait > 0 {
-		c.takeover.Reset(wait) // freed again since the timer was armed
+	if c.freed != c.seen {
+		c.seen = c.freed // freed again meanwhile: wait a whole delay more
+		c.takeover.Reset(takeoverDelay)
 		c.rmu.Unlock()
 		return
 	}
@@ -131,20 +136,23 @@ func (c *Conn) takeoverFired() {
 	c.readLoop()
 }
 
-// handOff gives the reader role of the read goroutine to a Read waiting
-// for a message, once the read goroutine has queued one, and reports
-// whether it did. That Read takes the message, and the next Read reads
-// frames itself.
+// handOff gives the reader role of the read goroutine to the Reads
+// waiting for a message, once the read goroutine has queued one, and
+// reports whether it did. A waiting Read is woken: it takes a queued
+// message or, when another Read took that, the free role, so that it
+// reads frames itself.
 func (c *Conn) handOff() bool {
 	if !c.direct {
 		return false
 	}
 	c.rmu.Lock()
-	defer c.rmu.Unlock()
 	if c.readers == 0 || c.discarding.Load() {
+		c.rmu.Unlock()
 		return false
 	}
 	c.freeRole()
+	c.rmu.Unlock()
+	notify(c.avail)
 	return true
 }
 

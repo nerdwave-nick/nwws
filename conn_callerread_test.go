@@ -347,3 +347,54 @@ func TestReadFallbackWithoutDeadlines(t *testing.T) {
 		t.Fatalf("reader role %d, want the read goroutine (%d)", role, roleLoop)
 	}
 }
+
+// A Read that waits while the read goroutine holds the reader role is
+// woken when the read goroutine hands the role over, also when the
+// message the read goroutine queued last went to another Read. Messages
+// larger than the read-ahead budget make the read goroutine wait for Read
+// after each, which is when that happens. Otherwise each message waits
+// for the takeover delay.
+func TestHandOffWakesWaitingRead(t *testing.T) {
+	const count, size = 200, 16 << 10
+	c, peer := startConn(t, true, readAheadConfig(1))
+	waitFor(t, "the read goroutine to read frames", func() bool {
+		c.rmu.Lock()
+		defer c.rmu.Unlock()
+		return c.role == roleLoop
+	})
+	sizes := make([]int, count)
+	for i := range sizes {
+		sizes[i] = size
+	}
+	written := writeAsync(peer, clientFrames(t, sizes))
+	start := time.Now()
+	for range count {
+		if _, _, err := readMsg(t, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A message waiting for the takeover delay takes at least that long.
+	if d := time.Since(start); d >= count*takeoverDelay/2 {
+		t.Fatalf("%d messages took %v: Reads waited for the takeover delay", count, d)
+	}
+	if err := waitErr(t, written); err != nil {
+		t.Fatalf("peer write: %v", err)
+	}
+}
+
+// Once the connection is closed, whatever the reason, the read side ends
+// without waiting for the takeover delay: closing starts the read
+// goroutine at once when nobody reads frames.
+func TestCloseStartsReadGoroutine(t *testing.T) {
+	c, peer := startConn(t, true, testConfig())
+	peer.send(true, opBinary, []byte("m"))
+	mustRead(t, c, MessageBinary, []byte("m"))
+	c.closeNow(ErrClosed) // as after a failed write or a liveness timeout
+	c.rmu.Lock()
+	role := c.role
+	c.rmu.Unlock()
+	if role == roleFree {
+		t.Fatal("the reader role stays free after the connection closed")
+	}
+	c.wait()
+}
