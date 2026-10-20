@@ -455,7 +455,9 @@ compression, and sections 12 and 13 with permessage-deflate on both sides:
 ```
 
 The gate is strict: the script exits non-zero unless every case is `OK`,
-or `INFORMATIONAL` where the suite defines no stricter outcome.
+or `INFORMATIONAL` where the suite defines no stricter outcome, and every
+report has its full case count (301 per side plain, 216 per side
+deflate), so a run that lost a case fails.
 `AUTOBAHN_PASSES=plain|deflate|all` (default `all`) selects the passes.
 `go test ./...` does not run the suite and needs no Docker. See
 [autobahn/README.md](autobahn/README.md) for what passing means and the

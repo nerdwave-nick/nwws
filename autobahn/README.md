@@ -24,7 +24,8 @@ Docker is required, nothing else beyond Go. From the repository root:
 The script builds the commands, runs both halves of the suite for each
 pass with the `crossbario/autobahn-testsuite:latest` image (`AUTOBAHN_IMAGE`
 overrides it) on the host network, and checks the results with
-`checkreport`. It exits non-zero unless every case passes. A full run takes
+`checkreport`. It exits non-zero unless every report has all its cases and
+every case passes. A full run takes
 a few minutes, most of it in the deflate pass. To run the nwws side under
 the race detector, set `GOFLAGS=-race`.
 
@@ -42,7 +43,7 @@ The suite is not part of `go test ./...`, which needs no Docker.
 | `run.sh` | Runs the gate. |
 | `echoserver/` | The nwws echo server: on `127.0.0.1:9701` for the plain pass, `127.0.0.1:9703` with `-compress` for the deflate pass. |
 | `echoclient/` | The nwws echo client. It follows the fuzzingserver protocol: `getCaseCount`, `runCase` for each case, then `updateReports`. |
-| `checkreport/` | Checks a report summary and prints the cases per behaviour. |
+| `checkreport/` | Checks report summaries against their expected case counts (`index.json:301`) and prints the cases per behaviour. |
 | `config/` | The fuzzingclient and fuzzingserver configurations of each pass, `*-deflate.json` for the deflate pass. The fuzzingserver listens on `127.0.0.1:9702` for the plain pass and `127.0.0.1:9704` for the deflate pass. |
 | `reports/server/index.json` | The summary of the plain fuzzingclient run against the nwws server. |
 | `reports/client/index.json` | The summary of the plain fuzzingserver run against the nwws client. |
@@ -57,6 +58,13 @@ The gate is strict. A case passes only when its behaviour and its close
 behaviour are both `OK`, or `INFORMATIONAL` where the suite defines no
 stricter outcome. `checkreport` fails on every other outcome, including
 `NON-STRICT` and `UNIMPLEMENTED`.
+
+Every report must also have the expected number of cases: 301 for each
+side of the plain pass and 216 for each side of the deflate pass. A run
+that lost a case fails even when every case it has passed. `run.sh`
+holds these counts and passes each with its report, as
+`index.json:cases`; they change only with the suite's image or the
+configurations.
 
 The echo peers raise the read limit to 32 MiB, since section 9 sends
 messages of up to 16 MiB.
