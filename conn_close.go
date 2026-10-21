@@ -173,7 +173,7 @@ func (c *Conn) Close(code StatusCode, reason string) error {
 	case <-timeout.C:
 		return errors.New("nwws: timed out waiting for the peer's close frame")
 	}
-	// The read goroutine finishes the handshake; on the client it waits
+	// The read side finishes the handshake; on the client it waits
 	// for the server to close TCP (RFC 6455 §7.1.1).
 	select {
 	case <-c.readDone:
