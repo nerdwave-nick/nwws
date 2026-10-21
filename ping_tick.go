@@ -33,7 +33,9 @@ func (l *liveness) stop() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.stopped = true
-	l.ticker.Stop()
+	if l.ticker != nil {
+		l.ticker.Stop()
+	}
 }
 
 // tick queues a ping when one is due and enforces the timeout. It returns

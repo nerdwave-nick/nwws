@@ -39,7 +39,7 @@ func (c *Conn) RTT() time.Duration {
 // the pong: a pong may wait behind a large frame on a slow link. For the
 // same reason, pings keep their interval while earlier ones await their
 // pongs; the timeout runs from the oldest of them. At most one ping waits
-// for the write goroutine at a time.
+// for the writer at a time.
 //
 // It runs on a timer of its own, which is a goroutine only while it
 // fires; see tick. The pings go through the single writer, but the timer

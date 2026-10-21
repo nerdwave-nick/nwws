@@ -48,11 +48,13 @@ func (c *Conn) putWriteBuffer() {
 	writeBuffers.Put(wb)
 }
 
-// endWriter returns the write buffer of an owner that stops writing for
-// good, after a close frame or a failed write. It keeps ownership, so the
-// write side is never taken again.
+// endWriter ends the write side for an owner that stops writing for
+// good, after a close frame or a failed write: it returns the write
+// buffer, and no frame is accepted or written any more.
 func (c *Conn) endWriter() {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
+	c.wfinal, c.wclosed, c.writing = true, true, false
 	c.putWriteBuffer()
+	c.finishWriter()
 }

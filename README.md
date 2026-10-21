@@ -90,9 +90,10 @@ Improving latency and `ReadInto` is the next planned work. Run the workflow your
 - **Single writer.** Frames are written one at a time and never
   interleave. A `Write` on an idle connection writes its frame itself, in
   the calling goroutine. While a write is in progress, other frames queue:
-  the connection's writer goroutine sends them together in the next
-  network write, pending pongs first and a close frame last. Pings and
-  close frames always go through the queue.
+  a writer goroutine sends them together in the next network write,
+  pending pongs first and a close frame last. That goroutine runs only
+  while frames are queued, and ends about a millisecond after the last.
+  Pings and close frames always go through the queue.
 - **Fragmented messages** are reassembled. Control frames between fragments
   are handled.
 - **Pings** are answered with a pong that carries the same payload.
@@ -226,10 +227,12 @@ Each connection checks that its peer is still there. It is on by default,
 on both sides.
 
 - **Pings.** The connection pings the peer every `PingInterval` (default
-  `DefaultPingInterval`, 10 s). Pings go through the single writer, like
-  every other frame.
+  `DefaultPingInterval`, 10 s), from a timer of its own, also while
+  earlier pings still await their pongs. Pings go through the single
+  writer, like every other frame; at most one waits for it at a time.
 - **Pong timeout.** If nothing arrives from the peer within `PongTimeout`
-  (default `DefaultPongTimeout`, 30 s) after a ping, the connection closes.
+  (default `DefaultPongTimeout`, 30 s) after a ping, counted from the
+  oldest ping still unanswered, the connection closes.
   A pong is the expected answer, but any data from the peer shows that it
   is alive.
   - **The peer** is sent a close frame with `StatusGoingAway` (1001) and
@@ -277,20 +280,22 @@ if errors.Is(err, nwws.ErrLivenessTimeout) {
 
 ## Idle connections
 
-An idle connection keeps little memory and two goroutines, liveness
+An idle connection keeps little memory and one goroutine, liveness
 included.
 
 - **Write buffer.** The 16 KiB write buffer and the frame writer's scratch
   space come from a pool when frames are written, and go back once nothing
   is left to write. An idle connection holds neither.
-- **Goroutines.** One goroutine reads frames. The other writes queued
-  frames and runs liveness on a timer. While that goroutine is blocked
-  writing to a peer that reads nothing, a timer runs liveness in its place,
-  so the pong timeout still ends the connection.
+- **Goroutines.** One goroutine reads frames, unless a `Read` waits and
+  reads them itself. Queued frames are written by a goroutine that runs
+  only while there are any. Liveness runs on a timer, which is a goroutine
+  only while it fires, so the pong timeout also ends a connection whose
+  writes a peer that reads nothing blocks.
 - **Measured.** `TestIdleConnectionCost` accepts 1000 connections over
   loopback from a client in another process, with liveness on both sides.
-  It requires at most 16 KB of heap and 2 goroutines per server
-  connection, and measures about 6–9 KB. No application goroutine reads in
+  It requires at most 16 KB of heap and 1 goroutine per server
+  connection, plus a few in all for pings and pongs being written, and
+  measures about 7–8 KB. No application goroutine reads in
   the test; goroutine stacks are not counted as heap.
 
 ```sh

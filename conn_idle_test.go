@@ -24,7 +24,8 @@ import (
 const (
 	idleConns          = 1000
 	idleMaxHeap        = 16_000 // bytes per connection
-	idleMaxGoroutines  = 2      // per connection
+	idleMaxGoroutines  = 1      // per connection: the read goroutine
+	idleTransient      = 10     // in all: writing a ping or pong, or firing a timer, during the sample
 	idlePingInterval   = time.Second
 	idleSettle         = 5 * idlePingInterval / 2
 	idleClientEnv      = "NWWS_IDLE_CLIENT"
@@ -96,12 +97,13 @@ func TestIdleConnectionCost(t *testing.T) {
 
 	heap := (int64(heap1) - int64(heap0)) / idleConns
 	goroutines := float64(goroutines1-goroutines0) / idleConns
-	t.Logf("server, N = %d, liveness on: %d B heap and %.2f goroutines per idle connection", idleConns, heap, goroutines)
+	t.Logf("server, N = %d, liveness on: %d B heap and %.2f goroutines per idle connection (%d in all)", idleConns, heap, goroutines, goroutines1-goroutines0)
 	if heap > idleMaxHeap {
 		t.Errorf("%d B heap per idle connection, want at most %d", heap, idleMaxHeap)
 	}
-	if goroutines > idleMaxGoroutines {
-		t.Errorf("%.2f goroutines per idle connection, want at most %d", goroutines, idleMaxGoroutines)
+	if extra := goroutines1 - goroutines0 - idleConns*idleMaxGoroutines; extra > idleTransient {
+		t.Errorf("%.2f goroutines per idle connection, %d beyond %d each, want at most %d beyond, for pings and pongs in flight",
+			goroutines, extra, idleMaxGoroutines, idleTransient)
 	}
 	mu.Lock()
 	runtime.KeepAlive(conns)
@@ -109,11 +111,12 @@ func TestIdleConnectionCost(t *testing.T) {
 }
 
 // idleSample returns the live heap after two collections and the number
-// of goroutines that stay. A connection's liveness watch timer is a
-// goroutine only while it fires, and timers that came due during the
-// collections fire together after them, so a single count can include a
-// few of those; the lowest of several counts, a millisecond apart, does
-// not.
+// of goroutines that stay. A connection's liveness timer is a goroutine
+// only while it fires, and its write goroutine only from a ping or pong
+// until a couple of milliseconds after it is written. Timers that came
+// due during the collections fire together after them, so a single count
+// can include many of those; the lowest of several counts, a millisecond
+// apart, includes few.
 func idleSample() (heap uint64, goroutines int) {
 	runtime.GC()
 	runtime.GC()

@@ -57,8 +57,9 @@ var ErrClosed = errors.New("nwws: connection closed")
 // Frames are written one at a time, so concurrent writers never
 // interleave. A Write on an idle connection writes its frame itself;
 // messages queued while a write is in progress are sent together in the
-// next one, by another goroutine of the connection, which also pings the
-// peer. An idle connection holds no write buffer.
+// next one, by a goroutine of the connection that runs only while frames
+// wait to be written. Pings go out on a timer. An idle connection holds
+// no write buffer and no goroutine for writing.
 type Conn struct {
 	nc          net.Conn
 	server      bool
@@ -78,15 +79,18 @@ type Conn struct {
 	fw        frameWriter
 	deflate   *deflater // compresses messages; nil without compression
 	bw        *bufio.Writer
-	wake      chan struct{} // signals queued frames; buffered
+	wake      chan struct{} // wakes writeLoop for queued frames; buffered
 	closeSent chan struct{} // closed once a close frame is on the wire
-	writeDone chan struct{}
+	writeDone chan struct{} // closed once the write side is finished; see finishWriter
 
 	wmu     sync.Mutex
 	queue   []*writeReq // data and close frames in order, guarded by wmu
 	pongs   []*writeReq // pongs to send first, oldest first, guarded by wmu
 	wclosed bool        // no more frames are accepted, guarded by wmu
 	writing bool        // writeLoop or a Write owns the write side, guarded by wmu
+	wrun    bool        // writeLoop runs, guarded by wmu
+	wfinal  bool        // the write side has ended: nothing is written any more, guarded by wmu
+	wdone   bool        // writeDone is closed, guarded by wmu
 
 	// The pooled buffer of bw and fw, held only while writing or while
 	// frames wait to be written; guarded by wmu.
@@ -124,11 +128,12 @@ type Conn struct {
 	live *liveness // pings and the pong timeout; nil when off
 }
 
-// newConn wraps nc, a connection after the opening handshake, and starts
-// its write goroutine. The first Read reads frames itself, or, after the
-// takeover delay without one, the read goroutine. Without compression and
-// with read deadlines, which interrupt a Read whose ctx is done, Read
-// reads frames itself; otherwise only the read goroutine does.
+// newConn wraps nc, a connection after the opening handshake. The first
+// Read reads frames itself, or, after the takeover delay without one, the
+// read goroutine. Without compression and with read deadlines, which
+// interrupt a Read whose ctx is done, Read reads frames itself; otherwise
+// only the read goroutine does. The write goroutine starts once frames
+// are queued.
 func newConn(nc net.Conn, server bool, subprotocol string, cfg connConfig) *Conn {
 	if cfg.readBuffer <= 0 {
 		cfg.readBuffer = DefaultReadBuffer
@@ -161,7 +166,6 @@ func newConn(nc net.Conn, server bool, subprotocol string, cfg connConfig) *Conn
 	}
 	c.rmu.Unlock()
 	c.live.start()
-	go c.writeLoop()
 	return c
 }
 
@@ -217,7 +221,8 @@ func (c *Conn) Subprotocol() string { return c.subprotocol }
 // reason the connection ended, unless a reason is already recorded, and
 // reports whether this call closed the connection. When nobody reads
 // frames, it starts the read goroutine, which then ends the read side
-// without waiting for the takeover delay.
+// without waiting for the takeover delay; when nobody writes, it
+// finishes the write side.
 func (c *Conn) closeNow(err error) (closed bool) {
 	c.setErr(err)
 	c.closeOnce.Do(func() {
@@ -226,6 +231,9 @@ func (c *Conn) closeNow(err error) (closed bool) {
 		_ = c.nc.Close()
 	})
 	if closed {
+		c.wmu.Lock()
+		c.finishWriter()
+		c.wmu.Unlock()
 		c.rmu.Lock()
 		if c.role == roleFree {
 			c.startLoop()
@@ -253,7 +261,8 @@ func (c *Conn) endErr() error {
 	return c.err
 }
 
-// wait waits for the goroutines of the connection to end.
+// wait waits for the read side to end and the write side to finish,
+// with the goroutines of the connection.
 func (c *Conn) wait() {
 	<-c.readDone
 	<-c.writeDone
