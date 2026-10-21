@@ -32,10 +32,7 @@ const (
 // Every connection of a pull-based library has one application
 // goroutine blocked in a read, on both sides: those libraries need the
 // application to keep reading, coder, gorilla and gobwas to process
-// control frames at all. That goroutine is part of the numbers. nbio
-// needs none: its pollers read every connection. Its engine, with its
-// goroutines and shared buffers, starts before the first sample, so it
-// is not counted per connection.
+// control frames at all. That goroutine is part of the numbers.
 //
 // The heap is HeapAlloc after two collections, which also empty
 // sync.Pool. Goroutine stacks are not included: the runtime keeps the
@@ -54,7 +51,7 @@ func BenchmarkIdle(b *testing.B) {
 // idleServer measures idleConns server connections of lib, dialed by a
 // child process.
 func idleServer(b *testing.B, lib library) {
-	url, accepted := serve(b, lib, idleConns, false)
+	url, accepted := serve(b, lib, idleConns)
 	conns := make([]conn, 0, idleConns)
 	b.Cleanup(func() {
 		for _, c := range conns {
@@ -84,9 +81,6 @@ func idleServer(b *testing.B, lib library) {
 func idleClient(b *testing.B, lib library) {
 	child := startIdleChild(b, "server", lib.name, "")
 	url := child.line(b)
-	if lib.prepare != nil {
-		lib.prepare()
-	}
 	conns := make([]conn, 0, idleConns)
 	b.Cleanup(func() {
 		for _, c := range conns {
@@ -223,7 +217,7 @@ func TestIdleHelper(t *testing.T) {
 	}
 	switch role {
 	case "server":
-		url, accepted := serve(t, lib, 1, false)
+		url, accepted := serve(t, lib, 1)
 		go func() {
 			for c := range accepted {
 				c.idle()

@@ -14,14 +14,9 @@ import (
 
 // serve starts a loopback server that upgrades every request with lib
 // and sends each server conn on the returned channel, which buffers up
-// to backlog conns. It returns the server's ws URL. The server is an
-// httptest server, or the library's own if it has one; ownPayload is
-// passed to that.
-func serve(tb testing.TB, lib library, backlog int, ownPayload bool) (string, <-chan conn) {
+// to backlog conns. It returns the server's ws URL.
+func serve(tb testing.TB, lib library, backlog int) (string, <-chan conn) {
 	tb.Helper()
-	if lib.serve != nil {
-		return lib.serve(tb, backlog, ownPayload)
-	}
 	accepted := make(chan conn, backlog)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := lib.upgrade(w, r)
@@ -50,7 +45,7 @@ func accept(tb testing.TB, accepted <-chan conn) conn {
 // pair returns both sides of a connection of lib.
 func pair(tb testing.TB, lib library) (client, server conn) {
 	tb.Helper()
-	url, accepted := serve(tb, lib, 1, false)
+	url, accepted := serve(tb, lib, 1)
 	client, err := lib.dial(url)
 	if err != nil {
 		tb.Fatal(err)
