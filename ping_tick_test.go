@@ -59,10 +59,11 @@ func TestLivenessTimeoutFrozenPeerQueuedWrite(t *testing.T) {
 
 // smallBufferConn is startConn with small socket buffers between the
 // Conn and its peer, so that the Conn's writes block as soon as the peer
-// falls behind, and no frame waits behind much buffered data.
+// falls behind, and no frame waits behind much buffered data. It uses
+// smallSegmentPair, as the frames are small.
 func smallBufferConn(t *testing.T, server bool, cfg connConfig) (*Conn, *rawPeer) {
 	t.Helper()
-	s, cl := tcpPair(t)
+	s, cl := smallSegmentPair(t)
 	mine, theirs := s, cl
 	if !server {
 		mine, theirs = cl, s
