@@ -92,6 +92,13 @@ type Conn struct {
 	wfinal  bool        // the write side has ended: nothing is written any more, guarded by wmu
 	wdone   bool        // writeDone is closed, guarded by wmu
 
+	// Abandoning a direct write whose ctx is done; see watchWrite.
+	wimu      sync.Mutex
+	widone    <-chan struct{} // Done of the ctx with an AfterFunc registered
+	wistop    func() bool     // unregisters it
+	wiwriting bool            // a direct write writes with widone
+	wifired   bool            // its ctx was done: the connection is closed
+
 	// The pooled buffer of bw and fw, held only while writing or while
 	// frames wait to be written; guarded by wmu.
 	wbuf *writeBuffer

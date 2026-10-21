@@ -11,10 +11,12 @@ import (
 	"time"
 )
 
-// gateConn counts writes and holds the first write until released.
+// gateConn counts writes and holds the write numbered hold, the first
+// unless set otherwise, until released.
 type gateConn struct {
 	net.Conn
-	entered chan struct{} // receives when the first write is held
+	hold    int
+	entered chan struct{} // receives when the held write is reached
 	release chan struct{}
 	closed  chan struct{}
 
@@ -26,6 +28,7 @@ type gateConn struct {
 func newGateConn(c net.Conn) *gateConn {
 	return &gateConn{
 		Conn:    c,
+		hold:    1,
 		entered: make(chan struct{}, 1),
 		release: make(chan struct{}),
 		closed:  make(chan struct{}),
@@ -35,9 +38,9 @@ func newGateConn(c net.Conn) *gateConn {
 func (g *gateConn) Write(b []byte) (int, error) {
 	g.mu.Lock()
 	g.writes++
-	first := g.writes == 1
+	held := g.writes == g.hold
 	g.mu.Unlock()
-	if first {
+	if held {
 		g.entered <- struct{}{}
 		select {
 		case <-g.release:
