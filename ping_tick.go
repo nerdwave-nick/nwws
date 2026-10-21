@@ -37,7 +37,7 @@ func (l *liveness) tick(now time.Time) (time.Duration, bool) {
 	var ping []byte
 	if !now.Before(l.nextPing) {
 		ping = l.ping(now)
-		l.nextPing = now.Add(l.interval)
+		l.nextPing = l.nextSlot(now)
 	}
 	next := l.due(now)
 	l.mu.Unlock()
@@ -45,6 +45,18 @@ func (l *liveness) tick(now time.Time) (time.Duration, bool) {
 		_ = l.c.enqueue(&writeReq{op: opPing, payload: ping}) // fails once closing
 	}
 	return next, true
+}
+
+// nextSlot returns when the next ping is due once the one due at nextPing
+// has been handled at now: an interval after nextPing, so that a late tick
+// does not delay the pings after it, skipping the slots it missed. The
+// caller holds mu.
+func (l *liveness) nextSlot(now time.Time) time.Time {
+	next := l.nextPing.Add(l.interval)
+	if !now.Before(next) {
+		next = next.Add((now.Sub(next)/l.interval + 1) * l.interval)
+	}
+	return next
 }
 
 // due returns how long until tick must run. The caller holds mu.
