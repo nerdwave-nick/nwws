@@ -31,6 +31,17 @@ const takeoverDelay = 2 * time.Millisecond
 
 // readAheadSize is the message size from which the read goroutine reads
 // ahead instead of Read reading frames itself.
+//
+// Reading in the caller saves a wake-up of another goroutine per message,
+// which is most of what a small message costs: 300 B round trips, Reads
+// and ReadIntos measured 24 to 54 % faster that way. For large messages,
+// reading the next one while the application handles the last matters
+// more: on EPYC 9V CPUs, 64 KiB ReadInto floods were 21 to 37 % slower
+// when read in the caller (runs 39442434243 and 39481208605), and reading
+// ahead from 64 KiB on brings them back to the speed of reading ahead
+// always. A 16 KiB threshold measured the same on the benchmarks, whose
+// sizes are 300 B, 64 KiB and 1 MiB (runs 39487695170 and 39487699129);
+// 64 KiB keeps caller reads for more message sizes.
 const readAheadSize = 64 << 10
 
 // Holders of the reader role, in Conn.role. Whoever holds it reads
