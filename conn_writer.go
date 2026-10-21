@@ -158,8 +158,10 @@ func (c *Conn) exitWriter() {
 // finishWriter finishes the write side once nothing writes and nothing
 // will: the write side has ended or the connection is closed, and neither
 // a write goroutine nor a Write owns it. It fails the frames still
-// queued, returns the write buffer, stops liveness, which can no longer
-// ping, and closes writeDone. The caller holds wmu.
+// queued, returns the write buffer and stops liveness, which can no
+// longer ping. writeDone is closed then, or, while a liveness timer
+// callback runs, once it returns; see liveness.stop. The caller holds
+// wmu.
 func (c *Conn) finishWriter() {
 	if c.wdone || c.wrun || c.writing || !c.wfinal && !c.isClosed() {
 		return
@@ -172,7 +174,10 @@ func (c *Conn) finishWriter() {
 	}
 	c.queue, c.pongs = nil, nil
 	c.putWriteBuffer()
-	c.live.stop()
+	if c.live != nil {
+		c.live.stop() // closes writeDone
+		return
+	}
 	close(c.writeDone)
 }
 

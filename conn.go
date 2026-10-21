@@ -81,7 +81,7 @@ type Conn struct {
 	bw        *bufio.Writer
 	wake      chan struct{} // wakes writeLoop for queued frames; buffered
 	closeSent chan struct{} // closed once a close frame is on the wire
-	writeDone chan struct{} // closed once the write side is finished; see finishWriter
+	writeDone chan struct{} // closed once the write side and liveness are finished; see finishWriter
 
 	wmu     sync.Mutex
 	queue   []*writeReq // data and close frames in order, guarded by wmu

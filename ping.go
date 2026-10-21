@@ -66,8 +66,11 @@ type liveness struct {
 	timed    pingTime      // the oldest ping written whose RTT is measured
 	last     pingTime      // the latest ping written
 	rtt      time.Duration // the last measured round-trip time
-	ticker   *time.Timer   // calls tick; see start
+	ticker   *time.Timer   // calls fire; see start
+	armed    bool          // ticker is set, and its callback has not begun
+	firing   bool          // fire runs
 	stopped  bool          // ticker is stopped for good
+	settled  bool          // stopped, with no callback running or to come: writeDone is closed
 }
 
 // pingTime is a ping that was written, and when; at is zero once the
