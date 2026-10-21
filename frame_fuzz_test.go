@@ -1,6 +1,7 @@
 package nwws
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"io"
@@ -28,9 +29,36 @@ func FuzzReadFrame(f *testing.F) {
 					}
 					checkFuzzedFrame(t, h, p, server, allowed, limit)
 				}
+				checkPeekedHeader(t, data, server, allowed, limit)
 			}
 		}
 	})
+}
+
+// checkPeekedHeader checks that peekHeader decodes the first header of
+// data as readHeader does, and consumes the header's bytes only when it
+// succeeds.
+func checkPeekedHeader(t *testing.T, data []byte, server bool, allowed byte, limit int64) {
+	t.Helper()
+	r := bytes.NewReader(data)
+	fr := &frameReader{r: r, server: server, rsv: allowed, maxPayload: limit}
+	want, werr := fr.readHeader()
+	headerLen := len(data) - r.Len()
+
+	br := bufio.NewReader(bytes.NewReader(data))
+	pr := &frameReader{server: server, rsv: allowed, maxPayload: limit}
+	got, gerr := pr.peekHeader(br)
+	if got != want || (gerr == nil) != (werr == nil) || gerr != nil && gerr.Error() != werr.Error() {
+		t.Fatalf("peekHeader = %+v, %v; readHeader = %+v, %v", got, gerr, want, werr)
+	}
+	rest, _ := io.ReadAll(br)
+	consumed := len(data) - len(rest)
+	switch {
+	case gerr == nil && consumed != headerLen:
+		t.Fatalf("peekHeader consumed %d bytes of a %d-byte header", consumed, headerLen)
+	case gerr != nil && consumed != 0:
+		t.Fatalf("peekHeader consumed %d bytes, then failed: %v", consumed, gerr)
+	}
 }
 
 func checkFuzzedFrame(t *testing.T, h frameHeader, p []byte, server bool, allowed byte, limit int64) {

@@ -626,6 +626,14 @@ func TestReadAheadConcurrentReads(t *testing.T) {
 func TestReadAheadWakesWaitingReads(t *testing.T) {
 	const readers, bursts = 4, 200
 	c, _ := startConn(t, true, testConfig())
+	// The read goroutine holds the reader role after the takeover delay,
+	// so that every Read waits for the queue. It keeps the role, as it
+	// queues no message itself.
+	waitFor(t, "the read goroutine to read frames", func() bool {
+		c.rmu.Lock()
+		defer c.rmu.Unlock()
+		return c.role == roleLoop
+	})
 	for i := range bursts {
 		got := make(chan error, readers)
 		for range readers {

@@ -39,27 +39,3 @@ func completeRunes(p []byte) int {
 	}
 	return len(p)
 }
-
-// readTextPayload is readPayload for a text frame that is not compressed:
-// it checks UTF-8 after every read from the network, unmasking as the bytes
-// arrive, so invalid text fails the connection at the first bad bytes
-// instead of when the frame is complete.
-func (c *Conn) readTextPayload(msg []byte, h frameHeader, limit int, pool bool, v *utf8Validator) ([]byte, error) {
-	off := len(msg)
-	msg = grow(msg, int(h.length), limit, pool)
-	pos := 0 // position in the masking key
-	for off < len(msg) {
-		n, err := c.fr.r.Read(msg[off:])
-		if h.masked {
-			pos = maskBytes(h.key, pos, msg[off:off+n])
-		}
-		off += n
-		if !v.valid(msg[:off], false) {
-			return nil, &protocolError{code: StatusInvalidFramePayloadData, err: errInvalidUTF8}
-		}
-		if err != nil && off < len(msg) {
-			return nil, noEOF(err)
-		}
-	}
-	return msg, nil
-}

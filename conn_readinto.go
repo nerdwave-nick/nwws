@@ -26,17 +26,23 @@ import (
 // violation, which it reports in order. On error it returns buf[:0], so the
 // buffer stays available.
 //
-// The connection reads each message into memory of its own, so that it can
-// read ahead. Once a connection has called ReadInto, it takes that memory
-// from a pool shared by all connections, and ReadInto gives it back after
-// copying the message into buf. Read and ReadInto may be mixed.
+// While no message has been read ahead, ReadInto reads the message
+// straight into buf, as Read reads frames itself then; see [Conn]. A
+// message read ahead, as large messages are, is in memory of the
+// connection's own. Once a
+// connection has called ReadInto, it takes that memory from a pool shared
+// by all connections, and ReadInto gives it back after copying the
+// message into buf. Read and ReadInto may be mixed.
 func (c *Conn) ReadInto(ctx context.Context, buf []byte) (MessageType, []byte, error) {
 	if !c.pooling.Load() {
 		c.pooling.Store(true)
 	}
-	m, err := c.nextData(ctx)
+	m, err := c.nextData(ctx, buf, true)
 	if err != nil {
 		return 0, buf[:0], err
+	}
+	if m.inBuf {
+		return m.typ, m.data, nil // read straight into buf
 	}
 	if cap(buf) < len(m.data) {
 		// The message's own memory becomes the caller's buffer.

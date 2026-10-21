@@ -33,14 +33,18 @@ func (c *Conn) RTT() time.Duration {
 	return l.rtt
 }
 
-// liveness pings the peer every interval through the write goroutine and
+// liveness pings the peer every interval through the single writer and
 // closes the connection when, after a ping, nothing arrives from the peer
 // within the timeout. Any data received proves the peer alive, not only
-// the pong: a pong may wait behind a large frame on a slow link.
+// the pong: a pong may wait behind a large frame on a slow link. For the
+// same reason, pings keep their interval while earlier ones await their
+// pongs; the timeout runs from the oldest of them. At most one ping waits
+// for the writer at a time.
 //
-// It runs in the write goroutine, on a timer in its select; see tick.
-// While that goroutine writes a batch, which a peer that reads nothing can
-// block, a watch timer ticks in its place; see guard.
+// It runs on a timer of its own, which is a goroutine only while it
+// fires; see tick. The pings go through the single writer, but the timer
+// does not wait for it: a peer that reads nothing can block the writes,
+// and the timeout is what ends them.
 //
 // While the read goroutine waits for Read, because the read-ahead budget
 // is full or a violation waits to be reported, it reads no frames and
@@ -59,11 +63,21 @@ type liveness struct {
 	held     bool          // reading has stopped until Read makes room
 	queued   bool          // a ping waits for the write goroutine
 	seq      uint64        // payload of the latest ping
-	sentAt   time.Time     // when the latest ping was written; zero once answered
+	timed    pingTime      // the oldest ping written whose RTT is measured
+	last     pingTime      // the latest ping written
 	rtt      time.Duration // the last measured round-trip time
-	batch    bool          // the write goroutine is writing a batch
-	watch    *time.Timer   // ticks while batch is set; nil until the first batch
-	watchAt  time.Time     // when watch fires; zero when it is not armed
+	ticker   *time.Timer   // calls fire; see start
+	armed    bool          // ticker is set, and its callback has not begun
+	firing   bool          // fire runs
+	stopped  bool          // ticker is stopped for good
+	settled  bool          // stopped, with no callback running or to come: writeDone is closed
+}
+
+// pingTime is a ping that was written, and when; at is zero once the
+// ping no longer measures the RTT.
+type pingTime struct {
+	seq uint64
+	at  time.Time
 }
 
 // newLiveness returns the liveness of c, or nil when it is off.
@@ -94,21 +108,25 @@ func (l *liveness) untilExpiry(now time.Time) time.Duration {
 	return l.waiting.Add(l.timeout).Sub(now)
 }
 
-// ping returns the payload of a new ping to queue, or nil when one is
-// already awaiting an answer or the write goroutine has not yet written
-// the previous one. The caller holds mu.
+// ping returns the payload of a new ping to queue, or nil while the write
+// goroutine has not yet written the previous one. The timeout runs from
+// the oldest ping still awaiting a sign of life. The caller holds mu.
 func (l *liveness) ping(now time.Time) []byte {
-	if !l.waiting.IsZero() || l.queued {
+	if l.queued {
 		return nil
 	}
-	l.waiting = now
+	if l.waiting.IsZero() {
+		l.waiting = now
+	}
 	l.queued = true
 	l.seq++
 	return binary.BigEndian.AppendUint64(nil, l.seq)
 }
 
 // pingWriting is called by the write goroutine just before it writes a
-// ping.
+// ping. The RTT is measured on the oldest ping awaiting its pong, which a
+// peer answers if it answers every ping, and on the latest, which a peer
+// answers if it answers only the latest (RFC 6455 §5.5.3).
 func (l *liveness) pingWriting(payload []byte) {
 	if l == nil {
 		return
@@ -116,28 +134,39 @@ func (l *liveness) pingWriting(payload []byte) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.queued = false
-	if l.isLatest(payload) {
-		l.sentAt = time.Now()
+	if len(payload) != 8 {
+		return
+	}
+	l.last = pingTime{seq: binary.BigEndian.Uint64(payload), at: time.Now()}
+	if l.timed.at.IsZero() {
+		l.timed = l.last
 	}
 }
 
-// pong records the RTT when a pong answers the latest ping. Other pongs,
-// unsolicited ones included, are ignored (RFC 6455 §5.5.3).
+// pong records the RTT when a pong answers a timed ping. A pong to a
+// later ping than the oldest timed one ends that timing, as the peer may
+// never answer it. Other pongs, unsolicited ones included, are ignored.
 func (l *liveness) pong(payload []byte) {
-	if l == nil {
+	if l == nil || len(payload) != 8 {
 		return
 	}
 	now := time.Now()
+	seq := binary.BigEndian.Uint64(payload)
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if !l.sentAt.IsZero() && l.isLatest(payload) {
-		l.rtt = now.Sub(l.sentAt)
-		l.sentAt = time.Time{}
+	switch {
+	case !l.timed.at.IsZero() && seq == l.timed.seq:
+		l.rtt = now.Sub(l.timed.at)
+		l.timed.at = time.Time{}
+		if l.last.seq == seq {
+			l.last.at = time.Time{}
+		}
+	case !l.last.at.IsZero() && seq == l.last.seq:
+		l.rtt = now.Sub(l.last.at)
+		l.timed.at, l.last.at = time.Time{}, time.Time{}
+	case seq > l.timed.seq && seq <= l.seq:
+		l.timed.at = time.Time{}
 	}
-}
-
-func (l *liveness) isLatest(payload []byte) bool {
-	return len(payload) == 8 && binary.BigEndian.Uint64(payload) == l.seq
 }
 
 // alive records that data arrived from the peer.
@@ -170,7 +199,7 @@ func (l *liveness) resume() {
 	if !l.waiting.IsZero() {
 		l.waiting = time.Now()
 	}
-	l.sentAt = time.Time{}
+	l.timed.at, l.last.at = time.Time{}, time.Time{}
 }
 
 // reader wraps r, the network connection, so that data read from it

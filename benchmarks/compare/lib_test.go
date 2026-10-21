@@ -7,7 +7,6 @@ import (
 	"flag"
 	"net/http"
 	"sync"
-	"testing"
 	"time"
 
 	coder "github.com/coder/websocket"
@@ -49,13 +48,10 @@ type conn interface {
 	// receives nil; or when reading or f fails, and then c is closed and
 	// the channel receives the error.
 	//
-	// For the pull-based libraries an application goroutine reads in a
-	// loop and calls f; nbio calls f from its message handler.
+	// An application goroutine reads in a loop and calls f.
 	receive(whole bool, f func(p []byte) error) <-chan error
 	// idle keeps the connection open and reading, as an application
-	// with no traffic does: for the pull-based libraries a goroutine
-	// blocked in a whole-message read, for nbio nothing, because its
-	// event loop reads.
+	// with no traffic does: a goroutine blocked in a whole-message read.
 	idle()
 	// close closes the network connection, without the closing handshake.
 	close()
@@ -69,14 +65,6 @@ type library struct {
 	name    string
 	upgrade func(w http.ResponseWriter, r *http.Request) (conn, error)
 	dial    func(url string) (conn, error)
-	// serve, if set, replaces the httptest server and upgrade, for a
-	// library with a server of its own (nbio). With ownPayload, received
-	// messages belong to the application; otherwise the library reuses
-	// their buffers once the handler returns.
-	serve func(tb testing.TB, backlog int, ownPayload bool) (string, <-chan conn)
-	// prepare, if set, starts what the library shares between client
-	// connections, so that BenchmarkIdle does not count it.
-	prepare func()
 }
 
 var libraries = []library{
@@ -84,7 +72,6 @@ var libraries = []library{
 	{name: "coder", upgrade: coderUpgrade, dial: coderDial},
 	{name: "gorilla", upgrade: gorillaUpgrade, dial: gorillaDial},
 	{name: "gobwas", upgrade: gobwasUpgrade, dial: gobwasDial},
-	{name: "nbio", dial: nbioDial, serve: nbioServe, prepare: nbioPrepare},
 }
 
 // puller is a conn of a pull-based library, whose application calls a

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net"
 	"time"
 )
@@ -18,9 +17,10 @@ var (
 // message is a complete data message, or a violation by the peer that
 // Read reports in order, after the messages received before it.
 type message struct {
-	typ  MessageType
-	data []byte
-	fail *protocolError
+	typ   MessageType
+	data  []byte
+	fail  *protocolError
+	inBuf bool // data is the buffer of the ReadInto that read it
 }
 
 // protocolError is a violation of RFC 6455 by the peer, for which the
@@ -42,7 +42,16 @@ func protocolErrorf(code StatusCode, format string, args ...any) *protocolError 
 
 // Read returns the next data message. Cancelling ctx, or its deadline,
 // makes Read return the context's error; the connection stays usable and
-// the next message is kept for a later Read.
+// the next message is kept for a later Read, also when Read had read part
+// of it.
+//
+// While no message has been read ahead, Read reads frames itself, in the
+// calling goroutine, and answers the peer's pings meanwhile; see [Conn].
+// It interrupts its network read through a read deadline when ctx is
+// done, so a connection supplied by [DialOptions.NetDialContext] should
+// support read deadlines: without them, the connection reads every
+// message in a goroutine of its own and hands it over to Read, which
+// takes longer.
 //
 // Once the connection has ended, Read returns why: a *[CloseError] with the
 // peer's close code and reason, a *CloseError with StatusAbnormalClosure
@@ -55,7 +64,7 @@ func protocolErrorf(code StatusCode, format string, args ...any) *protocolError 
 // messages. If Read is not called within the close timeout, the connection
 // is failed anyway.
 func (c *Conn) Read(ctx context.Context) (MessageType, []byte, error) {
-	m, err := c.nextData(ctx)
+	m, err := c.nextData(ctx, nil, false)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -63,9 +72,10 @@ func (c *Conn) Read(ctx context.Context) (MessageType, []byte, error) {
 }
 
 // nextData returns the next data message for Read and ReadInto, or why
-// there is none. A violation is returned as the error.
-func (c *Conn) nextData(ctx context.Context) (message, error) {
-	m, err := c.next(ctx)
+// there is none. A violation is returned as the error. A ReadInto, with
+// into, passes its buffer.
+func (c *Conn) nextData(ctx context.Context, buf []byte, into bool) (message, error) {
+	m, err := c.next(ctx, buf, into)
 	switch {
 	case err != nil:
 		return message{}, err
@@ -78,12 +88,36 @@ func (c *Conn) nextData(ctx context.Context) (message, error) {
 	return m, nil
 }
 
-// readLoop reads frames until the connection ends, records why so that
-// Read returns it, and then completes the closing handshake.
+// readLoop reads frames while the read goroutine holds the reader role:
+// it queues messages for Read and reads ahead within the budget. It gives
+// the role to a Read that waits for a message, and once the connection
+// ends it records why, so that Read returns it, and completes the closing
+// handshake.
 func (c *Conn) readLoop() {
-	defer close(c.readDone)
+	for {
+		m, got, err := c.readOne()
+		switch {
+		case err != nil:
+			c.endRead(err, false)
+			return
+		case !got:
+			continue
+		case !c.deliver(m):
+			c.endRead(net.ErrClosed, false)
+			return
+		case c.handOff(m):
+			return
+		}
+	}
+}
 
-	err := c.readMessages()
+// endRead ends the read side with err: the peer's close frame as a
+// *CloseError, a violation as a *protocolError, or a network error. It
+// records why the connection ended and completes the closing handshake.
+// A Read that holds the reader role calls it with taken: it reports a
+// violation itself, and the rest of the closing handshake runs in a
+// goroutine of its own.
+func (c *Conn) endRead(err error, taken bool) {
 	var ce *CloseError
 	var pe *protocolError
 	peerClosed := errors.As(err, &ce)
@@ -104,12 +138,29 @@ func (c *Conn) readLoop() {
 		}
 		_, _ = c.queueClose(echo)
 		close(c.closeRcvd)
+		// Read reports the peer's close once our close frame is on the
+		// wire, so an application that returns then has completed its
+		// half of the closing handshake.
+		c.awaitCloseSent()
 	case failed:
-		c.deliverFailure(pe)
+		if !taken {
+			c.deliverFailure(pe)
+		}
 		_, _ = c.queueClose(closePayload(pe.code, ""))
 	}
+	c.endRole()
 	c.endMessages()
+	if taken {
+		go c.finishRead(peerClosed, failed)
+		return
+	}
+	c.finishRead(peerClosed, failed)
+}
 
+// finishRead completes the closing handshake once the read side has
+// ended, and closes the network connection.
+func (c *Conn) finishRead(peerClosed, failed bool) {
+	defer close(c.readDone)
 	switch {
 	case peerClosed:
 		c.awaitCloseSent()
@@ -122,92 +173,6 @@ func (c *Conn) readLoop() {
 		}
 	}
 	c.closeNow(nil)
-}
-
-// readMessages reads frames, reassembles messages (RFC 6455 §5.4) and hands
-// them to Read. It returns the peer's close frame as a *CloseError, a
-// violation as a *protocolError, or a network error.
-func (c *Conn) readMessages() error {
-	var (
-		msg   []byte
-		typ   opcode
-		inMsg bool // a message has started and not finished
-		pool  bool // the message's memory comes from the pool
-		text  utf8Validator
-		limit = c.cfg.readLimit
-	)
-	for {
-		room := limit - int64(len(msg))
-		// Control frames up to 125 bytes stay readable when room is less.
-		// The first frame of a message may be compressed, which limits only
-		// the decompressed size; the check below limits the others.
-		c.fr.maxPayload = max(room, maxControlPayload)
-		if !inMsg {
-			c.fr.maxPayload = math.MaxInt64
-		}
-		h, err := c.fr.readHeader()
-		if err != nil {
-			return frameReadError(err)
-		}
-		if err := checkCompressedBit(h); err != nil {
-			return err
-		}
-		if h.opcode.isControl() {
-			if err := c.readControl(h); err != nil {
-				return err
-			}
-			continue
-		}
-
-		switch {
-		case h.opcode == opContinuation && !inMsg:
-			return protocolErrorf(StatusProtocolError, "continuation frame without a message to continue")
-		case h.opcode != opContinuation && inMsg:
-			return protocolErrorf(StatusProtocolError, "new message before the previous one finished")
-		case c.discarding.Load():
-			// Close has started: data is dropped unread, so it takes no
-			// memory, and control frames are still handled.
-			if err := c.skipPayload(h.length); err != nil {
-				return err
-			}
-			msg, inMsg = nil, !h.fin
-			continue
-		case h.rsv&rsv1Bit != 0:
-			// The first frame of a compressed message (RFC 7692 §6.1):
-			// the message is decompressed as its frames arrive.
-			msg, err := c.inflate.read(h, h.opcode == opText, limit, c.pooling.Load())
-			if err != nil {
-				return err
-			}
-			if !c.deliver(message{typ: MessageType(h.opcode), data: msg}) {
-				return net.ErrClosed
-			}
-			continue
-		case h.length > room:
-			return &protocolError{code: StatusMessageTooBig, err: fmt.Errorf("%w of %d bytes", errMessageTooLarge, limit)}
-		}
-		if !inMsg {
-			typ, inMsg, text, pool = h.opcode, true, utf8Validator{}, c.pooling.Load()
-		}
-		if typ == opText {
-			msg, err = c.readTextPayload(msg, h, int(limit), pool, &text)
-		} else {
-			msg, err = c.readPayload(msg, h, int(limit), pool)
-		}
-		if err != nil {
-			return err
-		}
-		if typ == opText && !text.valid(msg, h.fin) {
-			return &protocolError{code: StatusInvalidFramePayloadData, err: errInvalidUTF8}
-		}
-		if !h.fin {
-			continue
-		}
-		if !c.deliver(message{typ: MessageType(typ), data: msg}) {
-			return net.ErrClosed
-		}
-		msg, inMsg = nil, false
-	}
 }
 
 // frameReadError maps a codec error to the close code it fails the
@@ -254,13 +219,20 @@ func grow(b []byte, n, limit int, pool bool) []byte {
 	return nb
 }
 
-// readControl reads and handles the control frame h (RFC 6455 §5.5).
+// readControl reads and handles the control frame h, for the
+// decompressor, which reads the frames of a compressed message.
 func (c *Conn) readControl(h frameHeader) error {
 	payload, err := c.readPayload(nil, h, maxControlPayload, false)
 	if err != nil {
 		return err
 	}
-	switch h.opcode {
+	return c.handleControl(h.opcode, payload)
+}
+
+// handleControl handles a control frame with payload (RFC 6455 §5.5),
+// which it may keep.
+func (c *Conn) handleControl(op opcode, payload []byte) error {
+	switch op {
 	case opPing:
 		c.queuePong(payload)
 	case opPong:

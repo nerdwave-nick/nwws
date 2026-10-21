@@ -15,7 +15,7 @@ func TestCheck(t *testing.T) {
 	}}`
 
 	t.Run("passing", func(t *testing.T) {
-		r, err := check(strings.NewReader(passing), "nwws")
+		r, err := check(strings.NewReader(passing), "nwws", 5)
 		if err != nil {
 			t.Fatalf("check = %v, want nil", err)
 		}
@@ -41,23 +41,27 @@ func TestCheck(t *testing.T) {
 	}
 	failing := []struct {
 		name, report, agent string
+		cases               int    // expected
 		want                string // in the error
 	}{
-		{"non-strict", withCase("NON-STRICT", "OK"), "nwws", "6.4.3"},
-		{"unimplemented", withCase("UNIMPLEMENTED", "OK"), "nwws", "6.4.3"},
-		{"failed", withCase("FAILED", "OK"), "nwws", "6.4.3"},
-		{"wrong code", withCase("WRONG CODE", "OK"), "nwws", "6.4.3"},
-		{"non-strict close", withCase("OK", "NON-STRICT"), "nwws", "6.4.3"},
-		{"unimplemented close", withCase("OK", "UNIMPLEMENTED"), "nwws", "6.4.3"},
-		{"failed close", withCase("OK", "FAILED"), "nwws", "6.4.3"},
-		{"failed by peer close", withCase("INFORMATIONAL", "FAILED BY CLIENT"), "nwws", "6.4.3"},
-		{"missing agent", passing, "other", "other"},
-		{"no cases", `{"nwws": {}}`, "nwws", "no cases"},
-		{"invalid JSON", `{"nwws": `, "nwws", "index"},
+		{"non-strict", withCase("NON-STRICT", "OK"), "nwws", 2, "6.4.3"},
+		{"unimplemented", withCase("UNIMPLEMENTED", "OK"), "nwws", 2, "6.4.3"},
+		{"failed", withCase("FAILED", "OK"), "nwws", 2, "6.4.3"},
+		{"wrong code", withCase("WRONG CODE", "OK"), "nwws", 2, "6.4.3"},
+		{"non-strict close", withCase("OK", "NON-STRICT"), "nwws", 2, "6.4.3"},
+		{"unimplemented close", withCase("OK", "UNIMPLEMENTED"), "nwws", 2, "6.4.3"},
+		{"failed close", withCase("OK", "FAILED"), "nwws", 2, "6.4.3"},
+		{"failed by peer close", withCase("INFORMATIONAL", "FAILED BY CLIENT"), "nwws", 2, "6.4.3"},
+		{"missing agent", passing, "other", 5, "other"},
+		{"no cases", `{"nwws": {}}`, "nwws", 5, "no cases"},
+		{"invalid JSON", `{"nwws": `, "nwws", 5, "index"},
+		// A run that lost a case passes every case it has.
+		{"missing case", withCase("OK", "OK"), "nwws", 3, "2 cases, want 3"},
+		{"extra case", withCase("OK", "OK"), "nwws", 1, "2 cases, want 1"},
 	}
 	for _, tc := range failing {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := check(strings.NewReader(tc.report), tc.agent)
+			_, err := check(strings.NewReader(tc.report), tc.agent, tc.cases)
 			if err == nil {
 				t.Fatalf("check = nil, want an error mentioning %q", tc.want)
 			}
@@ -71,9 +75,11 @@ func TestCheck(t *testing.T) {
 		report := `{"nwws": {"3.2": {"behavior": "NON-STRICT", "behaviorClose": "OK"},
 			"1.1.1": {"behavior": "OK", "behaviorClose": "OK"},
 			"12.1.1": {"behavior": "UNIMPLEMENTED", "behaviorClose": "UNIMPLEMENTED"}}}`
-		_, err := check(strings.NewReader(report), "nwws")
-		if err == nil || !strings.Contains(err.Error(), "3.2") || !strings.Contains(err.Error(), "12.1.1") {
-			t.Fatalf("check = %v, want an error mentioning 3.2 and 12.1.1", err)
+		_, err := check(strings.NewReader(report), "nwws", 4)
+		for _, want := range []string{"3.2", "12.1.1", "3 cases, want 4"} {
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("check = %v, want an error mentioning %q", err, want)
+			}
 		}
 	})
 }
@@ -83,5 +89,27 @@ func TestCaseIDsSortNumerically(t *testing.T) {
 	want := []string{"1.1.2", "1.1.10", "9.2.1", "10.1.1"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("sortedIDs = %v, want %v", got, want)
+	}
+}
+
+func TestParseReport(t *testing.T) {
+	valid := []struct {
+		arg  string
+		want report
+	}{
+		{"reports/server/index.json:301", report{"reports/server/index.json", 301}},
+		{"index.json:216", report{"index.json", 216}},
+		{"dir:with:colons/index.json:1", report{"dir:with:colons/index.json", 1}},
+	}
+	for _, tc := range valid {
+		got, err := parseReport(tc.arg)
+		if err != nil || got != tc.want {
+			t.Errorf("parseReport(%q) = %+v, %v, want %+v, nil", tc.arg, got, err, tc.want)
+		}
+	}
+	for _, arg := range []string{"index.json", "index.json:", "index.json:x", "index.json:0", "index.json:-1", ":301"} {
+		if got, err := parseReport(arg); err == nil {
+			t.Errorf("parseReport(%q) = %+v, nil, want an error", arg, got)
+		}
 	}
 }

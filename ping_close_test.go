@@ -2,8 +2,10 @@ package nwws
 
 import (
 	"bytes"
+	"fmt"
 	"net"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 )
@@ -150,4 +152,44 @@ func TestLivenessCloseThroughSingleWriter(t *testing.T) {
 		peer.expectEOF()
 		waitDone(t, c)
 	})
+}
+
+// A connection's liveness timer has finished once the connection has: when
+// a blocked write and the timer's last tick both end a liveness timeout at
+// the same moment, no timer callback of the connection still runs once
+// its goroutines are done.
+func TestLivenessTimerDoneWithConnection(t *testing.T) {
+	const conns, rounds = 32, 4
+	const interval, timeout = 5 * time.Millisecond, 20 * time.Millisecond
+	cfg := liveConfig(interval, timeout)
+	cfg.closeTimeout = timeout // the close frame's write deadline and the timer's last tick coincide
+	for range rounds {
+		var wg sync.WaitGroup
+		for range conns {
+			s, _ := frozenPair(t)
+			c := newConn(s, true, "", cfg)
+			go func() { _ = c.Write(t.Context(), MessageBinary, make([]byte, 4<<20)) }()
+			wg.Go(func() {
+				_, _, err := readMsg(t, c)
+				assertLivenessTimeout(t, err)
+				waitDone(t, c)
+				if n := timerCallbacks(c); n != 0 {
+					t.Errorf("%d liveness timer callbacks of the connection still running after it ended", n)
+				}
+			})
+		}
+		wg.Wait()
+	}
+}
+
+// timerCallbacks counts the running liveness timer callbacks of c.
+func timerCallbacks(c *Conn) int {
+	buf := make([]byte, 1<<20)
+	for {
+		n := runtime.Stack(buf, true)
+		if n < len(buf) {
+			return bytes.Count(buf[:n], fmt.Appendf(nil, "(*liveness).fire(%p", c.live))
+		}
+		buf = make([]byte, 2*len(buf))
+	}
 }

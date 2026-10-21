@@ -7,29 +7,204 @@ import (
 	"net"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 )
 
 // A Write on an idle connection writes its frame itself, without the
-// allocations of a queued write. It allocates nothing in a normal build;
-// the race detector adds one on the client side.
+// allocations of a queued write. It allocates nothing, also with a ctx
+// that can be cancelled, as long as Writes pass the same one.
 func TestWriteIdleAllocs(t *testing.T) {
+	if raceEnabled {
+		t.Skip("sync.Pool drops write buffers on purpose under the race detector")
+	}
+	cancellable, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	for _, server := range []bool{true, false} {
-		t.Run(map[bool]string{true: "server", false: "client"}[server], func(t *testing.T) {
-			c, peer := startConn(t, server, testConfig())
-			go func() { _, _ = io.Copy(io.Discard, peer.nc) }()
-			msg := make([]byte, 300)
-			ctx := context.Background()
-			if n := testing.AllocsPerRun(200, func() {
-				if err := c.Write(ctx, MessageBinary, msg); err != nil {
-					t.Fatal(err)
+		for name, ctx := range map[string]context.Context{"background": context.Background(), "cancellable": cancellable} {
+			t.Run(map[bool]string{true: "server", false: "client"}[server]+"/"+name, func(t *testing.T) {
+				c, peer := startConn(t, server, testConfig())
+				go func() { _, _ = io.Copy(io.Discard, peer.nc) }()
+				msg := make([]byte, 300)
+				if n := testing.AllocsPerRun(200, func() {
+					if err := c.Write(ctx, MessageBinary, msg); err != nil {
+						t.Fatal(err)
+					}
+				}); n != 0 {
+					t.Errorf("%v allocations per Write, want 0", n)
 				}
-			}); n > 1 {
-				t.Errorf("%v allocations per Write, want at most 1", n)
+			})
+		}
+	}
+}
+
+// startHeldAt returns a server Conn whose network write numbered hold is
+// held until released.
+func startHeldAt(t *testing.T, hold int) (*Conn, *rawPeer, *gateConn) {
+	t.Helper()
+	s, cl := tcpPair(t)
+	g := newGateConn(s)
+	g.hold = hold
+	c := newConn(g, true, "", testConfig())
+	t.Cleanup(func() {
+		c.closeNow(ErrClosed)
+		c.wait()
+	})
+	return c, newRawPeer(t, cl, false), g
+}
+
+func waitConnClosed(t *testing.T, g *gateConn) {
+	t.Helper()
+	select {
+	case <-g.closed:
+	case <-time.After(testTimeout):
+		t.Fatal("connection not closed")
+	}
+}
+
+// Cancelling the ctx of a direct write in flight closes the connection,
+// also when earlier Writes passed the same ctx.
+func TestWriteCancelledInFlightAfterWrites(t *testing.T) {
+	c, peer, g := startHeldAt(t, 3)
+	ctx, cancel := context.WithCancel(t.Context())
+	for _, msg := range []string{"one", "two"} {
+		if err := c.Write(ctx, MessageBinary, []byte(msg)); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+		peer.expectFrame(opBinary, []byte(msg))
+	}
+	errc := make(chan error, 1)
+	go func() { errc <- c.Write(ctx, MessageBinary, []byte("stuck")) }()
+	waitEntered(t, g)
+	cancel()
+	if err := waitErr(t, errc); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Write = %v, want Canceled", err)
+	}
+	waitConnClosed(t, g)
+	if _, _, err := readMsg(t, c); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Read on an aborted connection = %v, want the abandoned write's Canceled", err)
+	}
+}
+
+// Cancelling the ctx of a Write that has returned leaves the connection
+// alone, while it is idle and while a later Write with another ctx is in
+// flight.
+func TestWriteCancelledAfterReturn(t *testing.T) {
+	c, peer, g := startHeldAt(t, 4) // "four"
+	idle, cancelIdle := context.WithCancel(t.Context())
+	busy, cancelBusy := context.WithCancel(t.Context())
+	defer cancelBusy()
+
+	if err := c.Write(idle, MessageBinary, []byte("one")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if err := c.Write(busy, MessageBinary, []byte("two")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	cancelBusy() // while idle
+	if err := c.Write(idle, MessageBinary, []byte("three")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	other, cancelOther := context.WithCancel(t.Context())
+	defer cancelOther()
+	errc := make(chan error, 1)
+	go func() { errc <- c.Write(other, MessageBinary, []byte("four")) }()
+	waitEntered(t, g)
+	cancelIdle() // while "four" is in flight
+	close(g.release)
+	if err := waitErr(t, errc); err != nil {
+		t.Fatalf("Write = %v, want nil", err)
+	}
+	if err := c.Write(idle, MessageBinary, []byte("never")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Write with a cancelled ctx = %v, want Canceled", err)
+	}
+	mustWrite(t, c, MessageBinary, []byte("five"))
+	for _, msg := range []string{"one", "two", "three", "four", "five"} {
+		peer.expectFrame(opBinary, []byte(msg))
+	}
+	select {
+	case <-g.closed:
+		t.Fatal("connection closed")
+	default:
+	}
+}
+
+// lateCtx is cancelled right after the first check of its Err, as a ctx
+// cancelled while Write starts.
+type lateCtx struct {
+	context.Context
+	cancel  context.CancelFunc
+	checked atomic.Bool
+}
+
+func (c *lateCtx) Err() error {
+	if !c.checked.Swap(true) {
+		defer c.cancel()
+		return nil
+	}
+	return c.Context.Err()
+}
+
+// A direct Write whose ctx is cancelled before its frame is written
+// writes nothing, and the connection stays usable, also when earlier
+// Writes passed the same ctx.
+func TestWriteCancelledBeforeDirectWrite(t *testing.T) {
+	for _, reused := range []bool{false, true} {
+		t.Run(map[bool]string{false: "new", true: "reused"}[reused], func(t *testing.T) {
+			c, peer := startConn(t, true, testConfig())
+			inner, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			ctx := &lateCtx{Context: inner, cancel: cancel}
+			if reused {
+				ctx.checked.Store(true) // not cancelled by this Write
+				if err := c.Write(ctx, MessageBinary, []byte("before")); err != nil {
+					t.Fatalf("Write: %v", err)
+				}
+				peer.expectFrame(opBinary, []byte("before"))
+				ctx.checked.Store(false)
 			}
+			if err := c.Write(ctx, MessageBinary, []byte("never")); !errors.Is(err, context.Canceled) {
+				t.Fatalf("Write = %v, want Canceled", err)
+			}
+			mustWrite(t, c, MessageBinary, []byte("after"))
+			peer.expectFrame(opBinary, []byte("after"))
 		})
+	}
+}
+
+// Once the connection has ended, a long-lived ctx that Writes passed no
+// longer keeps it reachable.
+func TestWriteCtxReleasesEndedConn(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	collected := make(chan struct{})
+	func() {
+		s, cl := tcpPair(t)
+		go func() { _, _ = io.Copy(io.Discard, cl) }()
+		c := newConn(s, true, "", testConfig())
+		runtime.AddCleanup(c, func(ch chan struct{}) { close(ch) }, collected)
+		for range 3 {
+			if err := c.Write(ctx, MessageBinary, []byte("msg")); err != nil {
+				t.Fatalf("Write: %v", err)
+			}
+		}
+		c.closeNow(ErrClosed)
+		c.wait()
+	}()
+	deadline := time.Now().Add(testTimeout)
+	for {
+		runtime.GC()
+		select {
+		case <-collected:
+			return
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the ended connection is still reachable")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

@@ -382,7 +382,7 @@ func livenessGoroutines() int {
 	for {
 		n := runtime.Stack(buf, true)
 		if n < len(buf) {
-			return bytes.Count(buf[:n], []byte("(*liveness).run"))
+			return bytes.Count(buf[:n], []byte("(*liveness).fire"))
 		}
 		buf = make([]byte, 2*len(buf))
 	}

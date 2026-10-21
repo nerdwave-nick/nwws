@@ -7,8 +7,8 @@
 #   2. the fuzzingserver against the nwws echo client (autobahn/echoclient).
 # Reports go to autobahn/reports/{server,client} for the plain pass and
 # autobahn/reports/{server,client}-deflate for the deflate pass. The script
-# exits non-zero unless every case of the passes run is strictly OK (see
-# autobahn/checkreport).
+# exits non-zero unless every pass run has all its cases (cases below) and
+# every case is strictly OK (see autobahn/checkreport).
 #
 # Environment:
 #   AUTOBAHN_PASSES the passes to run: plain, deflate or all (default all)
@@ -29,6 +29,11 @@ all) sides=(server client server-deflate client-deflate) ;;
 	exit 2
 	;;
 esac
+
+# cases is the number of cases each report must have: a run that lost a
+# case fails the gate even when every case it has passed. They change only
+# when the suite's image or the configurations change.
+declare -A cases=([server]=301 [client]=301 [server-deflate]=216 [client-deflate]=216)
 
 bin=$(mktemp -d)
 pids=()
@@ -107,5 +112,5 @@ fi
 
 echo "== results"
 reports=()
-for side in "${sides[@]}"; do reports+=("$here/reports/$side/index.json"); done
+for side in "${sides[@]}"; do reports+=("$here/reports/$side/index.json:${cases[$side]}"); done
 "$bin/checkreport" "${reports[@]}"

@@ -133,18 +133,16 @@ func BenchmarkConcurrentWriters(b *testing.B) {
 // masked frames, so that only the read side differs between libraries.
 // api=whole reads with the whole-message API, which returns a new slice
 // for every message (nwws Read, coder Read, gorilla ReadMessage, gobwas
-// wsutil.Reader and io.ReadAll as in wsutil.ReadData, nbio handler with
-// the payload left to the application); api=reuse reads into a buffer
-// the application reuses (nwws ReadInto, coder Reader, gorilla
-// NextReader and gobwas wsutil.Reader into a reused bytes.Buffer, nbio
-// handler with ReleaseWebsocketPayload, which returns the buffer to
-// nbio's pool).
+// wsutil.Reader and io.ReadAll as in wsutil.ReadData); api=reuse reads
+// into a buffer the application reuses (nwws ReadInto, coder Reader,
+// gorilla NextReader and gobwas wsutil.Reader into a reused
+// bytes.Buffer).
 func BenchmarkRead1MiB(b *testing.B) {
 	frame := maskedFrame(largeSize)
 	forEachLib(b, func(b *testing.B, lib library) {
 		for _, api := range []string{"whole", "reuse"} {
 			b.Run("api="+api, func(b *testing.B) {
-				url, accepted := serve(b, lib, 1, api == "whole")
+				url, accepted := serve(b, lib, 1)
 				nc := rawDial(b, url)
 				server := accept(b, accepted)
 				b.Cleanup(server.close)
@@ -168,35 +166,18 @@ func BenchmarkRead1MiB(b *testing.B) {
 					}
 					writeErr <- nil
 				}()
-				if pc, ok := server.(puller); ok {
-					// The benchmark goroutine reads, as an application would.
-					read := pc.readReuse
-					if api == "whole" {
-						read = pc.read
+				pc := server.(puller)
+				// The benchmark goroutine reads, as an application would.
+				read := pc.readReuse
+				if api == "whole" {
+					read = pc.read
+				}
+				for i := range n {
+					p, err := read()
+					if err == nil {
+						err = check(i, p)
 					}
-					for i := range n {
-						p, err := read()
-						if err == nil {
-							err = check(i, p)
-						}
-						if err != nil {
-							b.Fatal(err)
-						}
-					}
-				} else {
-					// nbio: its handler receives the messages.
-					i := 0
-					done := server.receive(api == "whole", func(p []byte) error {
-						if err := check(i, p); err != nil {
-							return err
-						}
-						i++
-						if i == n {
-							return errStop
-						}
-						return nil
-					})
-					if err := <-done; err != nil {
+					if err != nil {
 						b.Fatal(err)
 					}
 				}
