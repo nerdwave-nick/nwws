@@ -159,9 +159,9 @@ func (c *Conn) exitWriter() {
 // will: the write side has ended or the connection is closed, and neither
 // a write goroutine nor a Write owns it. It fails the frames still
 // queued, returns the write buffer, drops the AfterFunc of the last
-// direct write's ctx and stops liveness, which can no longer ping. writeDone is closed then, or, while a liveness timer
-// callback runs, once it returns; see liveness.stop. The caller holds
-// wmu.
+// direct write's ctx and stops liveness, which can no longer ping.
+// writeDone is closed then, or, while a liveness timer callback runs,
+// once it returns; see liveness.stop. The caller holds wmu.
 func (c *Conn) finishWriter() {
 	if c.wdone || c.wrun || c.writing || !c.wfinal && !c.isClosed() {
 		return
