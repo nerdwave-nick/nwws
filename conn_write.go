@@ -3,7 +3,6 @@ package nwws
 import (
 	"context"
 	"fmt"
-	"time"
 	"unicode/utf8"
 )
 
@@ -162,23 +161,11 @@ func (c *Conn) withdraw(req *writeReq) bool {
 func (c *Conn) writeLoop() {
 	defer close(c.writeDone)
 	defer c.failQueued()
-	var tick <-chan time.Time // liveness; nil when off
-	t := c.live.timer()
-	if t != nil {
-		defer t.Stop()
-		defer c.live.stopWatch()
-		tick = t.C
-	}
+	defer c.live.stop()
 	var batch []*writeReq
 	for {
 		select {
 		case <-c.wake:
-		case <-tick:
-			next, ok := c.live.tick(time.Now())
-			if !ok {
-				return
-			}
-			t.Reset(next)
 		case <-c.closed:
 			return
 		}
@@ -186,9 +173,7 @@ func (c *Conn) writeLoop() {
 		if len(batch) == 0 {
 			continue // nothing queued, or a direct write wakes us when done
 		}
-		c.live.guard()
 		werr := c.writeBatch(batch)
-		c.live.unguard()
 		var err error
 		if werr != nil {
 			err = c.writeErr(werr)

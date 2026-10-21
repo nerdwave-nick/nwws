@@ -160,6 +160,7 @@ func newConn(nc net.Conn, server bool, subprotocol string, cfg connConfig) *Conn
 		c.startLoop()
 	}
 	c.rmu.Unlock()
+	c.live.start()
 	go c.writeLoop()
 	return c
 }

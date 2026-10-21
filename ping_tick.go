@@ -2,16 +2,38 @@ package nwws
 
 import "time"
 
-// timer starts the liveness timer of the write goroutine, which calls tick
-// when it fires. It returns nil when liveness is off.
-func (l *liveness) timer() *time.Timer {
+// start starts the liveness timer, which calls tick when it fires and is
+// a goroutine only then.
+func (l *liveness) start() {
 	if l == nil {
-		return nil
+		return
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.nextPing = time.Now().Add(l.interval)
-	return time.NewTimer(l.interval)
+	l.ticker = time.AfterFunc(l.interval, l.fire)
+}
+
+// fire runs tick and sets the timer for its next run.
+func (l *liveness) fire() {
+	next, ok := l.tick(time.Now())
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if ok && !l.stopped {
+		l.ticker.Reset(next)
+	}
+}
+
+// stop stops the liveness timer for good, once no frame can be written
+// any more.
+func (l *liveness) stop() {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.stopped = true
+	l.ticker.Stop()
 }
 
 // tick queues a ping when one is due and enforces the timeout. It returns
@@ -65,75 +87,6 @@ func (l *liveness) due(now time.Time) time.Duration {
 		return l.closeBy.Sub(now)
 	}
 	return min(l.nextPing.Sub(now), l.untilExpiry(now))
-}
-
-// guard keeps liveness ticking while the write goroutine writes a batch:
-// a peer that reads nothing can block that write, and the liveness timeout
-// is what ends it. The watch timer then ticks in the write goroutine's
-// place; it is a goroutine only while it fires. Once armed, it stays armed
-// across batches until it fires, so a busy writer rarely touches it.
-func (l *liveness) guard() {
-	if l == nil {
-		return
-	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.batch = true
-	now := time.Now()
-	at := now.Add(l.due(now))
-	if !l.watchAt.IsZero() && !l.watchAt.After(at) {
-		return // armed early enough
-	}
-	l.watchAt = at
-	if l.watch == nil {
-		l.watch = time.AfterFunc(at.Sub(now), l.watchFired)
-		return
-	}
-	l.watch.Reset(at.Sub(now))
-}
-
-// unguard ends the watch once the batch is written. The timer is left to
-// fire, and then does nothing.
-func (l *liveness) unguard() {
-	if l == nil {
-		return
-	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.batch = false
-}
-
-// stopWatch stops the watch timer when the write goroutine ends.
-func (l *liveness) stopWatch() {
-	if l == nil {
-		return
-	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.watch != nil {
-		l.watch.Stop()
-	}
-	l.watchAt = time.Time{}
-}
-
-func (l *liveness) watchFired() {
-	l.mu.Lock()
-	if !l.batch {
-		l.watchAt = time.Time{}
-		l.mu.Unlock()
-		return
-	}
-	l.mu.Unlock()
-	now := time.Now()
-	d, ok := l.tick(now)
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if ok && l.batch {
-		l.watchAt = now.Add(d)
-		l.watch.Reset(d)
-		return
-	}
-	l.watchAt = time.Time{}
 }
 
 // closeWritten closes the connection once the close frame of a liveness

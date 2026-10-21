@@ -33,7 +33,7 @@ func (c *Conn) RTT() time.Duration {
 	return l.rtt
 }
 
-// liveness pings the peer every interval through the write goroutine and
+// liveness pings the peer every interval through the single writer and
 // closes the connection when, after a ping, nothing arrives from the peer
 // within the timeout. Any data received proves the peer alive, not only
 // the pong: a pong may wait behind a large frame on a slow link. For the
@@ -41,9 +41,10 @@ func (c *Conn) RTT() time.Duration {
 // pongs; the timeout runs from the oldest of them. At most one ping waits
 // for the write goroutine at a time.
 //
-// It runs in the write goroutine, on a timer in its select; see tick.
-// While that goroutine writes a batch, which a peer that reads nothing can
-// block, a watch timer ticks in its place; see guard.
+// It runs on a timer of its own, which is a goroutine only while it
+// fires; see tick. The pings go through the single writer, but the timer
+// does not wait for it: a peer that reads nothing can block the writes,
+// and the timeout is what ends them.
 //
 // While the read goroutine waits for Read, because the read-ahead budget
 // is full or a violation waits to be reported, it reads no frames and
@@ -65,9 +66,8 @@ type liveness struct {
 	timed    pingTime      // the oldest ping written whose RTT is measured
 	last     pingTime      // the latest ping written
 	rtt      time.Duration // the last measured round-trip time
-	batch    bool          // the write goroutine is writing a batch
-	watch    *time.Timer   // ticks while batch is set; nil until the first batch
-	watchAt  time.Time     // when watch fires; zero when it is not armed
+	ticker   *time.Timer   // calls tick; see start
+	stopped  bool          // ticker is stopped for good
 }
 
 // pingTime is a ping that was written, and when; at is zero once the
