@@ -14,10 +14,12 @@ import (
 )
 
 // A Write on an idle connection writes its frame itself, without the
-// allocations of a queued write. It allocates nothing in a normal build,
-// also with a ctx that can be cancelled, as long as Writes pass the same
-// one; the race detector adds one on the client side.
+// allocations of a queued write. It allocates nothing, also with a ctx
+// that can be cancelled, as long as Writes pass the same one.
 func TestWriteIdleAllocs(t *testing.T) {
+	if raceEnabled {
+		t.Skip("sync.Pool drops write buffers on purpose under the race detector")
+	}
 	cancellable, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	for _, server := range []bool{true, false} {
@@ -30,8 +32,8 @@ func TestWriteIdleAllocs(t *testing.T) {
 					if err := c.Write(ctx, MessageBinary, msg); err != nil {
 						t.Fatal(err)
 					}
-				}); n > 1 {
-					t.Errorf("%v allocations per Write, want at most 1", n)
+				}); n != 0 {
+					t.Errorf("%v allocations per Write, want 0", n)
 				}
 			})
 		}
