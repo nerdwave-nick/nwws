@@ -12,7 +12,7 @@ go get github.com/nerdwave-nick/nwws
 
 ## Status and comparison
 
-nwws is young. It is at v0.1.0, has one author and no production users yet, and its API may still change before v1. Treat it accordingly.
+nwws is young. It is at v0.2.0, has one author and no production users yet, and its API may still change before v1. Treat it accordingly.
 
 So far it has been compared with [coder/websocket](https://github.com/coder/websocket) v1.8.15, [gorilla/websocket](https://github.com/gorilla/websocket) v1.5.3 and [gobwas/ws](https://github.com/gobwas/ws) v1.4.0, in October 2026. Other Go implementations have not been compared, including:
 - [gws](https://github.com/lxzan/gws);
@@ -25,7 +25,7 @@ Nothing here claims nwws is better than those.
 
 | Library | Plain, 301 cases per side | permessage-deflate, 216 cases per side |
 | --- | --- | --- |
-| nwws v0.1.0 | 298 OK, 3 INFORMATIONAL / the same | 216 OK / 216 OK |
+| nwws v0.2.0 | 298 OK, 3 INFORMATIONAL / the same | 216 OK / 216 OK |
 | coder/websocket v1.8.15 | 222 OK, 76 FAILED, 3 INFORMATIONAL / the same | 180 OK, 36 UNIMPLEMENTED / 144 OK, 72 UNIMPLEMENTED |
 | gorilla/websocket v1.5.3 | 223 OK, 75 FAILED, 3 INFORMATIONAL / the same | 216 OK / 36 OK, 108 FAILED, 72 UNIMPLEMENTED |
 | gobwas/ws v1.4.0 (wsutil helpers) | 298 OK, 3 INFORMATIONAL / the same | 144 OK, 72 UNIMPLEMENTED / the same |
@@ -36,34 +36,55 @@ Notes on the table:
 - **Compression.** gorilla and gobwas negotiate only without context takeover. gobwas declines window-size offers. gorilla's client fails the suite's compressed cases at the handshake. With Go 1.27, gobwas's compression must end messages with `wsflate.Writer.Flush`: `Close`, as in its README, fails.
 - **INFORMATIONAL.** The 3 INFORMATIONAL cases are 7.1.6, 7.13.1 and 7.13.2. The suite defines no stricter outcome for these cases.
 
-**Performance.** These results come from the [comparison benchmarks](benchmarks/compare). They were run with the manual `bench.yml` workflow on a GitHub runner (AMD EPYC 9V45, 4 vCPU, Go 1.27), over plaintext loopback TCP. Each figure is a median of 10 runs. Settings:
+**Performance.** These results come from the
+[comparison benchmarks](benchmarks/compare). They were run with the manual
+`bench.yml` workflow (run 39611938175) on a GitHub runner (AMD EPYC 9V74,
+4 vCPU, Go 1.27), over plaintext loopback TCP. Each figure is a median of
+10 runs. Settings:
 - binary messages;
 - compression off;
 - nwws liveness off;
 - each library's own concurrency rules.
 
-gobwas is used through its `wsutil` helpers.
+Versions: nwws v0.2.0, coder v1.8.15, gorilla v1.5.3, gobwas v1.4.0
+(October 2026). gobwas is used through its `wsutil` helpers.
 
 | Benchmark | nwws | coder | gorilla | gobwas |
 | --- | --- | --- | --- | --- |
-| Round trip, 300 B (lower is better) | 33.0 µs | 18.3 µs | 15.4 µs | **15.0 µs** |
-| One writer, 300 B | 45.2 MiB/s | 44.5 MiB/s | 45.8 MiB/s | 48.4 MiB/s |
-| One writer, 64 KiB | 1.35 GiB/s | 509 MiB/s | 528 MiB/s | **2.60 GiB/s** |
-| 16 concurrent writers, 300 B | **183 MiB/s** | 36.1 MiB/s | 41.6 MiB/s | 43.4 MiB/s |
-| 1 MiB reads, reused buffer | 6.27 GiB/s | 7.12 GiB/s | 7.36 GiB/s | **7.37 GiB/s** |
-| Allocations per round trip | 6 | 24 | **3** | **3** |
-| Idle connection: heap | **6.6 KB** | 10.8 KB | 8.9 KB | 9.1 KB |
-| Idle connection: goroutines | 3 | **1** | **1** | **1** |
+| Round trip, 300 B (lower is better) | 17.2 µs | 20.5 µs | 17.1 µs | **16.6 µs** |
+| One writer, 300 B | 38.0 MiB/s | 38.8 MiB/s | 36.4 MiB/s | 40.7 MiB/s |
+| One writer, 64 KiB | 1.02 GiB/s | 436 MiB/s | 478 MiB/s | **1.79 GiB/s** |
+| 16 concurrent writers, 300 B | **149 MiB/s** | 26.6 MiB/s | 37.0 MiB/s | 39.8 MiB/s |
+| 1 MiB reads, whole message | **3.46 GiB/s** | 1.67 GiB/s | 1.70 GiB/s | 1.63 GiB/s |
+| 1 MiB reads, reused buffer | 5.09 GiB/s | **6.01 GiB/s** | 5.33 GiB/s | 5.38 GiB/s |
+| Allocations per round trip | **0** | 24 | 3 | 3 |
+| Idle connection: heap | **7.1 KB** | 10.8 KB | 8.9 KB | 9.1 KB |
+| Idle connection: goroutines | 1 | 1 | 1 | 1 |
 
 What the table shows:
-- **Round-trip latency.** nwws is about 2× slower than coder, gorilla and gobwas (3.7× on an EPYC 7763 runner).
-  - **nwws:** each message is handed from nwws's read goroutine to `Read`, which wakes a thread on another CPU. Measured: about 22 µs per round trip with `GOMAXPROCS=1`, about 72 µs with 2 or 4.
-- **Writing.** nwws is clearly ahead with concurrent writers, because writers share flushes. With a single writer of large messages, gobwas is about twice as fast.
-- **Reading into a reused buffer.** nwws is 12–18 % slower than coder, gorilla and gobwas. It is not the copy out of nwws's read-ahead buffer: reading straight into the caller's buffer did not change the result on these runners. The cause is not yet known.
-- **Idle connections.** nwws keeps the least heap, but runs three goroutines against one.
-- **Whole-message reads** of 1 MiB are not in the table. nwws allocates once per message and was fastest in every run, but the others' results varied up to 2.3× between runs.
+- **Round-trip latency.** nwws is level with gorilla (within 1 %), 3 %
+  behind gobwas, and 16 % ahead of coder.
+  - In v0.1.0 nwws was 2–3.5× slower, because each message woke a thread on
+    another CPU when passing from nwws's read goroutine to `Read`.
+  - Since v0.2.0, `Read` reads frames itself while nothing is queued.
+- **Writing.** nwws is clearly ahead with concurrent writers, because
+  writers share flushes. With a single writer of 64 KiB messages, gobwas is
+  about 1.75× faster than nwws, and nwws about 2.3× faster than coder and
+  gorilla. With 300 B messages, all four are equal within the noise.
+- **Reading.**
+  - **Whole-message reads of 1 MiB:** nwws is about twice as fast, because it
+    allocates once per message at the exact size.
+  - **Reads into a reused buffer:** nwws is 5–15 % slower than the others.
+    The cause is not yet known; it is not the copy out of nwws's read-ahead
+    buffer.
+- **Idle connections.** nwws keeps the least heap per connection. All four
+  run one goroutine per connection: the application's reader.
+- **Allocations.** nwws allocates nothing per round trip or per write.
+- **Runner CPUs differ between runs.** Compare numbers only within one
+  table.
 
-Improving latency and `ReadInto` is the next planned work. Run the workflow yourself from the Actions tab ("Benchmarks") to reproduce these numbers.
+Run the workflow yourself from the Actions tab ("Benchmarks") to reproduce
+these numbers.
 
 ## API
 
