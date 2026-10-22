@@ -28,13 +28,13 @@ import (
 //
 // While no message has been read ahead, ReadInto reads the message
 // straight into buf, as Read reads frames itself then; see [Conn]. Unlike
-// Read, it does so for large messages too: the next one is not read ahead
-// while the application handles the last, and no message is copied. A
-// message read ahead, after no ReadInto ran for a couple of milliseconds
-// or after a large message for Read, is in memory of the connection's
-// own. Once a connection has called ReadInto, it takes that memory from a
-// pool shared by all connections, and ReadInto gives it back after
-// copying the message into buf. Read and ReadInto may be mixed.
+// Read, it does so for messages of 256 KiB or more too: the next one is
+// not read ahead while the application handles the last, and no message
+// is copied. A message read ahead, after no Read ran for a couple of
+// milliseconds or after a smaller large message, is in memory of the
+// connection's own. Once a connection has called ReadInto, it takes
+// that memory from a pool shared by all connections, and ReadInto gives
+// it back after copying the message into buf. Read and ReadInto may be mixed.
 func (c *Conn) ReadInto(ctx context.Context, buf []byte) (MessageType, []byte, error) {
 	if !c.pooling.Load() {
 		c.pooling.Store(true)

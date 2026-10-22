@@ -44,12 +44,13 @@ var ErrClosed = errors.New("nwws: connection closed")
 // While no message waits to be read, Read reads frames itself, in the
 // calling goroutine: it reassembles the next message, answers pings and
 // takes part in the closing handshake. When no Read has run for a couple
-// of milliseconds, or after a large message for Read, a goroutine of the
+// of milliseconds, or after a large message, a goroutine of the
 // connection takes over: it reads the next message while the application
-// handles the last, until a Read waits for a small message or a
-// [Conn.ReadInto] waits for any. It queues complete messages for Read and
-// keeps reading while they take less than the read-ahead budget,
-// [ConnOptions.ReadBuffer]. Once the budget is full, it reads no further
+// handles the last, until a Read waits for a small message. A
+// [Conn.ReadInto] reads messages of 256 KiB or more itself, and takes
+// over from that goroutine with one. The goroutine queues complete
+// messages for Read and keeps reading while they take less than the
+// read-ahead budget, [ConnOptions.ReadBuffer]. Once the budget is full, it reads no further
 // frames until Read makes room, so keep calling Read for as long as the
 // connection is in use. Compressed connections, and those whose read
 // deadline cannot be set, always read frames in that goroutine.
@@ -108,6 +109,8 @@ type Conn struct {
 	rq         msgQueue
 	readers    int           // Reads waiting for a message
 	intoWait   int           // ReadIntos among the waiting Reads
+	readQueued bool          // a Read waited when the last message was queued
+	intoQueued bool          // a ReadInto waited when the last message was queued
 	rwait      int           // waitNone, or what readLoop waits for Read to do
 	rend       bool          // the read side has ended: no more messages follow
 	discarding atomic.Bool   // Close has started: messages are dropped; set under rmu

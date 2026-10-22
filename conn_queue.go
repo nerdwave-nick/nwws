@@ -89,6 +89,7 @@ func (c *Conn) pushMessage(m message) (more bool) {
 	}
 	c.rq.push(m, c.cfg.readBuffer)
 	wake := c.readers > 0
+	c.readQueued, c.intoQueued = c.readers > 0, c.intoWait > 0
 	more = c.rq.fits(c.cfg.readBuffer)
 	c.rmu.Unlock()
 	if wake {
