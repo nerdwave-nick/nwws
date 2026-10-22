@@ -53,11 +53,14 @@ const readAheadSize = 64 << 10
 // read goroutine and a working set of three message buffers instead of
 // the caller's one. For 1 MiB messages that costs more than reading the
 // next message early gains: read in the caller, interleaved on three EPYC
-// 9V45 runners (run 39745595539), loops of 1 MiB ReadInto ran 5 to 10 %
-// faster, and nwws's Read1MiB/api=reuse 6 to 9 % faster. For 64 KiB
-// messages, reading ahead still wins: read in the caller, ReadInto/64KiB
-// ran 23 to 32 % slower in the same run. 256 KiB lies between the two
-// measured sizes; the benchmarks have no message size in between.
+// 9V45 runners (run 39745595539), loops of 1 MiB ReadInto ran 4 to 10 %
+// faster where the difference was significant, and nwws's
+// Read1MiB/api=reuse 6 to 9 % faster. For 64 KiB messages, reading ahead
+// still wins: read in the caller, ReadInto/64KiB ran 23 to 32 % slower in
+// the same run. The runners measured no size in between. On an Intel
+// laptop, interleaved in one process, 256 KiB messages read in the caller
+// took 14 % less time and 30 % less CPU, and 1 MiB ones 3 to 8 % less
+// time and 20 to 24 % less CPU (lit d74bd0ee).
 const readIntoCallerSize = 256 << 10
 
 // readsAhead reports whether a message of n bytes for Read, or for
