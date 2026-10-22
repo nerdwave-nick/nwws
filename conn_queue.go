@@ -89,6 +89,7 @@ func (c *Conn) pushMessage(m message) (more bool) {
 	}
 	c.rq.push(m, c.cfg.readBuffer)
 	wake := c.readers > 0
+	c.readQueued, c.intoQueued = c.readers > 0, c.intoWait > 0
 	more = c.rq.fits(c.cfg.readBuffer)
 	c.rmu.Unlock()
 	if wake {
@@ -177,6 +178,9 @@ func (c *Conn) next(ctx context.Context, buf []byte, into bool) (message, error)
 			return c.readAsCaller(ctx, buf, into)
 		}
 		c.readers++
+		if into {
+			c.intoWait++
+		}
 		c.rmu.Unlock()
 		var err error
 		select {
@@ -186,6 +190,9 @@ func (c *Conn) next(ctx context.Context, buf []byte, into bool) (message, error)
 		}
 		c.rmu.Lock()
 		c.readers--
+		if into {
+			c.intoWait--
+		}
 		if err != nil {
 			c.rmu.Unlock()
 			return message{}, err

@@ -420,62 +420,136 @@ func roleOf(c *Conn) int {
 	return c.role
 }
 
-// Large messages are read ahead: a Read that has read one itself gives
-// the reader role to the read goroutine at once, which keeps it while
-// large messages follow, also when Reads wait. After a small message, a
-// waiting Read takes the role back and reads frames itself.
+// roleCounter checks transitions of the reader role through Conn.freed,
+// the count of times it was freed for the Reads, which the takeover timer
+// leaves alone: the takeover delay may pass at any point, so who holds
+// the role at a given moment is not stable.
+type roleCounter struct {
+	t     *testing.T
+	c     *Conn
+	peer  *rawPeer
+	buf   []byte // ReadInto's buffer
+	freed uint64 // the count expected
+}
+
+func newRoleCounter(t *testing.T, c *Conn, peer *rawPeer, bufSize int) *roleCounter {
+	rc := &roleCounter{t: t, c: c, peer: peer, buf: make([]byte, 0, bufSize)}
+	_, _, rc.freed = rc.state()
+	return rc
+}
+
+func (rc *roleCounter) state() (role, readers int, freed uint64) {
+	rc.c.rmu.Lock()
+	defer rc.c.rmu.Unlock()
+	return rc.c.role, rc.c.readers, rc.c.freed
+}
+
+// receive has one Read, or ReadInto with into, wait, holding the role or
+// waiting for the read goroutine, before the peer sends msg: masking msg
+// may take longer than the takeover delay. Then it checks that the role
+// was freed for the Reads once more when frees is set, and not otherwise:
+// by the Read itself, or by the read goroutine after queueing msg.
+func (rc *roleCounter) receive(what string, into bool, msg []byte, frees bool) {
+	t, c := rc.t, rc.c
+	t.Helper()
+	done := make(chan error, 1)
+	go func() {
+		var typ MessageType
+		var got []byte
+		var err error
+		if into {
+			typ, got, err = readInto(t, c, rc.buf)
+		} else {
+			typ, got, err = readMsg(t, c)
+		}
+		switch {
+		case err != nil:
+		case typ != MessageBinary || !bytes.Equal(got, msg):
+			err = fmt.Errorf("got %v, %d bytes; want %v, %d bytes", typ, len(got), MessageBinary, len(msg))
+		case into && !sameArray(got, rc.buf):
+			err = errors.New("the message is not in buf")
+		}
+		done <- err
+	}()
+	waitFor(t, what+": the Read to wait", func() bool {
+		r, n, _ := rc.state()
+		return r == roleRead && n == 0 || r == roleLoop && n == 1
+	})
+	rc.peer.send(true, opBinary, msg)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+	case <-time.After(testTimeout):
+		t.Fatalf("%s: the Read did not return", what)
+	}
+	if frees {
+		rc.freed++
+		waitFor(t, what+": the role to be freed", func() bool {
+			_, _, f := rc.state()
+			return f >= rc.freed
+		})
+	}
+	if _, _, f := rc.state(); f != rc.freed {
+		t.Fatalf("after %s: the role was freed %d times, want %d", what, f, rc.freed)
+	}
+}
+
+// Large messages are read ahead for Read: after one, the read goroutine
+// holds the reader role and keeps it while large messages follow, also
+// when Reads wait. A small message frees the role for the Reads, whether
+// Read read it itself or the read goroutine queued it for a waiting Read.
 func TestLargeMessagesReadAhead(t *testing.T) {
 	c, peer := startConn(t, true, testConfig())
 	small, large := []byte("small"), bytes.Repeat([]byte("L"), readAheadSize)
+	rc := newRoleCounter(t, c, peer, 0)
 
-	peer.send(true, opBinary, small)
-	mustRead(t, c, MessageBinary, small)
-	if r := roleOf(c); r != roleFree {
-		t.Fatalf("after a small message read by Read: role %d, want free (%d)", r, roleFree)
-	}
-
-	peer.send(true, opBinary, large)
-	mustRead(t, c, MessageBinary, large)
-	if r := roleOf(c); r != roleLoop && r != roleEnded {
+	rc.receive("a small message", false, small, true)
+	rc.receive("a large message", false, large, false)
+	if r, _, _ := rc.state(); r != roleLoop && r != roleEnded {
 		t.Fatalf("after a large message read by Read: role %d, want the read goroutine (%d)", r, roleLoop)
 	}
-
-	// Reads that wait get large messages from the read goroutine, which
-	// keeps the role.
 	for range 3 {
-		done := readAsync(t, c)
-		waitFor(t, "the Read to wait", func() bool {
-			c.rmu.Lock()
-			defer c.rmu.Unlock()
-			return c.readers == 1
-		})
-		peer.send(true, opBinary, large)
-		if err := waitErr(t, done); err != nil {
-			t.Fatalf("Read: %v", err)
-		}
-		if r := roleOf(c); r != roleLoop {
-			t.Fatalf("after a large message queued for a waiting Read: role %d, want the read goroutine (%d)", r, roleLoop)
-		}
+		rc.receive("a large message queued for a waiting Read", false, large, false)
 	}
+	rc.receive("a small message after large ones", false, small, true)
+	rc.receive("another small message", false, small, true)
+	for range 20 {
+		rc.receive("a large message", false, large, false)
+		rc.receive("a small message queued for a waiting Read", false, small, true)
+	}
+}
 
-	// A small message for a waiting Read gives the role back.
-	done := readAsync(t, c)
-	waitFor(t, "the Read to wait", func() bool {
-		c.rmu.Lock()
-		defer c.rmu.Unlock()
-		return c.readers == 1
-	})
-	peer.send(true, opBinary, small)
-	if err := waitErr(t, done); err != nil {
-		t.Fatalf("Read: %v", err)
+// ReadInto reads messages of readIntoCallerSize or more itself, straight
+// into the caller's buffer: after one, the reader role is free for the
+// next Read, whether the ReadInto read it itself or the read goroutine
+// had read it and handed the role over. Smaller large messages are read
+// ahead for ReadInto as for Read, and so are messages of every large size
+// for Read.
+func TestLargeMessagesReadIntoInCaller(t *testing.T) {
+	c, peer := startConn(t, true, testConfig())
+	large := bytes.Repeat([]byte("L"), readAheadSize)
+	huge := bytes.Repeat([]byte("H"), readIntoCallerSize)
+	rc := newRoleCounter(t, c, peer, 2*readIntoCallerSize)
+
+	for range 3 {
+		rc.receive("a huge message for ReadInto", true, huge, true)
 	}
-	waitFor(t, "the read goroutine to hand the role over", func() bool {
-		r := roleOf(c)
-		return r == roleFree || r == roleRead
-	})
-	peer.send(true, opBinary, small)
-	mustRead(t, c, MessageBinary, small)
-	if r := roleOf(c); r != roleFree {
-		t.Fatalf("after a small message read by Read again: role %d, want free (%d)", r, roleFree)
+	for range 2 {
+		rc.receive("a large message for ReadInto", true, large, false)
+	}
+	rc.receive("a huge message for ReadInto after large ones", true, huge, true)
+	for range 2 {
+		rc.receive("a huge message for Read", false, huge, false)
+	}
+	for range 3 {
+		rc.receive("a huge message for ReadInto after Read", true, huge, true)
+	}
+	// The read goroutine frees the role also when the ReadInto has
+	// taken the message by the time the read goroutine checks.
+	for range 20 {
+		rc.receive("a huge message for Read", false, huge, false)
+		rc.receive("a huge message for ReadInto queued by the read goroutine", true, huge, true)
 	}
 }

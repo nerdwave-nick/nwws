@@ -30,7 +30,8 @@ import (
 const takeoverDelay = 2 * time.Millisecond
 
 // readAheadSize is the message size from which the read goroutine reads
-// ahead instead of Read reading frames itself.
+// ahead instead of Read reading frames itself. ReadInto reads messages of
+// readIntoCallerSize or more itself again; see readsAhead.
 //
 // Reading in the caller saves a wake-up of another goroutine per message,
 // which is most of what a small message costs: 300 B round trips, Reads
@@ -43,6 +44,30 @@ const takeoverDelay = 2 * time.Millisecond
 // sizes are 300 B, 64 KiB and 1 MiB (runs 39487695170 and 39487699129);
 // 64 KiB keeps caller reads for more message sizes.
 const readAheadSize = 64 << 10
+
+// readIntoCallerSize is the message size from which ReadInto reads
+// messages itself again, straight into the caller's buffer, instead of
+// having them read ahead and copying them out of the connection's memory.
+//
+// Reading ahead costs ReadInto a copy of every message, a wake-up of the
+// read goroutine and a working set of three message buffers instead of
+// the caller's one. For 1 MiB messages that costs more than reading the
+// next message early gains: read in the caller, interleaved on three EPYC
+// 9V45 runners (run 39745595539), loops of 1 MiB ReadInto ran 4 to 10 %
+// faster where the difference was significant, and nwws's
+// Read1MiB/api=reuse 6 to 9 % faster. For 64 KiB messages, reading ahead
+// still wins: read in the caller, ReadInto/64KiB ran 23 to 32 % slower in
+// the same run. The runners measured no size in between. On an Intel
+// laptop, interleaved in one process, 256 KiB messages read in the caller
+// took 14 % less time and 30 % less CPU, and 1 MiB ones 3 to 8 % less
+// time and 20 to 24 % less CPU (lit d74bd0ee).
+const readIntoCallerSize = 256 << 10
+
+// readsAhead reports whether a message of n bytes for Read, or for
+// ReadInto when into is set, is read ahead by the read goroutine.
+func readsAhead(n int, into bool) bool {
+	return n >= readAheadSize && (!into || n < readIntoCallerSize)
+}
 
 // Holders of the reader role, in Conn.role. Whoever holds it reads
 // frames, with the position in the stream kept in Conn.rs.
@@ -78,9 +103,11 @@ func (c *Conn) readAsCaller(ctx context.Context, buf []byte, into bool) (message
 		interrupted = c.unwatch()
 	}
 	switch {
-	case got && len(m.data) >= readAheadSize:
+	case got && readsAhead(len(m.data), into):
 		// Large messages are read ahead: the read goroutine reads the
-		// next one while the application handles this one.
+		// next one while the application handles this one. ReadInto
+		// keeps reading the largest itself, straight into its buffer,
+		// which saves copying each one out of the connection's memory.
 		c.rs.userBuf = nil
 		c.rmu.Lock()
 		c.startLoop()
@@ -164,23 +191,27 @@ func (c *Conn) takeoverFired() {
 	c.readLoop()
 }
 
-// handOff gives the reader role of the read goroutine to the Reads
-// waiting for a message, once the read goroutine has queued m, unless m
-// is large, and reports whether it did. A waiting Read is woken: it takes
-// a queued message or, when another Read took that, the free role, so
-// that it reads frames itself.
+// handOff gives the reader role of the read goroutine to the Reads, once
+// it has queued m for a Read that waited, unless m is read ahead (see
+// readsAhead), and reports whether it did. A waiting Read is woken: it
+// takes a queued message or, when another Read took that, the free role,
+// so that it reads frames itself. The Read that waited may have taken m
+// and returned already; the free role then waits for its next call.
 func (c *Conn) handOff(m message) bool {
-	if !c.direct || len(m.data) >= readAheadSize {
+	if !c.direct {
 		return false
 	}
 	c.rmu.Lock()
-	if c.readers == 0 || c.discarding.Load() {
+	if !c.readQueued || readsAhead(len(m.data), c.intoQueued) || c.discarding.Load() {
 		c.rmu.Unlock()
 		return false
 	}
 	c.freeRole()
+	wake := c.readers > 0
 	c.rmu.Unlock()
-	notify(c.avail)
+	if wake {
+		notify(c.avail)
+	}
 	return true
 }
 
