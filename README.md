@@ -74,9 +74,16 @@ What the table shows:
 - **Reading.**
   - **Whole-message reads of 1 MiB:** nwws is about twice as fast, because it
     allocates once per message at the exact size.
-  - **Reads into a reused buffer:** nwws is 5–15 % slower than the others.
-    The cause is not yet known; it is not the copy out of nwws's read-ahead
-    buffer.
+  - **Reads into a reused buffer:** in this v0.2.0 run, nwws was 5–15 %
+    slower than the others.
+    - **Cause:** large messages went through nwws's read goroutine and were
+      copied into the caller's buffer.
+    - **Since v0.2.1,** `ReadInto` reads messages of 256 KiB or more straight
+      into the caller's buffer. In an A/B run on GitHub runners (run
+      39745595539, three EPYC 9V45 jobs), 1 MiB reused-buffer reads got
+      6–9 % faster than v0.2.0, which narrows the gap to coder to 2–9 %.
+    - **Smaller messages keep read-ahead:** reading 64 KiB messages in the
+      caller was 23–32 % slower on those CPUs.
 - **Idle connections.** nwws keeps the least heap per connection. All four
   run one goroutine per connection: the application's reader.
 - **Allocations.** nwws allocates nothing per round trip or per write.
