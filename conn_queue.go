@@ -177,6 +177,9 @@ func (c *Conn) next(ctx context.Context, buf []byte, into bool) (message, error)
 			return c.readAsCaller(ctx, buf, into)
 		}
 		c.readers++
+		if into {
+			c.intoWait++
+		}
 		c.rmu.Unlock()
 		var err error
 		select {
@@ -186,6 +189,9 @@ func (c *Conn) next(ctx context.Context, buf []byte, into bool) (message, error)
 		}
 		c.rmu.Lock()
 		c.readers--
+		if into {
+			c.intoWait--
+		}
 		if err != nil {
 			c.rmu.Unlock()
 			return message{}, err

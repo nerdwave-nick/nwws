@@ -44,14 +44,15 @@ type ConnOptions struct {
 	// ReadBuffer is the read-ahead budget, in bytes. While Reads of small
 	// messages keep coming, each reads the next message itself and nothing
 	// is read ahead; see [Conn]. Once no Read has run for a couple of
-	// milliseconds, or after a large message, the connection keeps reading
-	// frames, and so answering pings, while complete messages wait for
-	// Read, as long as they take less memory than ReadBuffer. Each message
-	// counts its size plus a few dozen bytes of bookkeeping. A message is
-	// always queued when none waits, even if it is larger. Once the budget
-	// is full, the connection stops reading until Read makes room, and TCP
-	// pushes back on the peer. Memory for reading is bounded by ReadBuffer
-	// plus one message being read. Zero or less means DefaultReadBuffer.
+	// milliseconds, or after a large message for Read, the connection
+	// keeps reading frames, and so answering pings, while complete
+	// messages wait for Read, as long as they take less memory than
+	// ReadBuffer. Each message counts its size plus a few dozen bytes of
+	// bookkeeping. A message is always queued when none waits, even if it
+	// is larger. Once the budget is full, the connection stops reading
+	// until Read makes room, and TCP pushes back on the peer. Memory for
+	// reading is bounded by ReadBuffer plus one message being read. Zero
+	// or less means DefaultReadBuffer.
 	ReadBuffer int64
 
 	// CloseTimeout bounds each wait of the closing handshake, on both

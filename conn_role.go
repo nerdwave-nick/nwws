@@ -30,7 +30,9 @@ import (
 const takeoverDelay = 2 * time.Millisecond
 
 // readAheadSize is the message size from which the read goroutine reads
-// ahead instead of Read reading frames itself.
+// ahead instead of Read reading frames itself. It applies to Read only:
+// ReadInto reads messages of every size itself, straight into the
+// caller's buffer.
 //
 // Reading in the caller saves a wake-up of another goroutine per message,
 // which is most of what a small message costs: 300 B round trips, Reads
@@ -78,9 +80,11 @@ func (c *Conn) readAsCaller(ctx context.Context, buf []byte, into bool) (message
 		interrupted = c.unwatch()
 	}
 	switch {
-	case got && len(m.data) >= readAheadSize:
-		// Large messages are read ahead: the read goroutine reads the
-		// next one while the application handles this one.
+	case got && !into && len(m.data) >= readAheadSize:
+		// Large messages for Read are read ahead: the read goroutine
+		// reads the next one while the application handles this one.
+		// ReadInto keeps reading them itself, straight into its buffer,
+		// which saves copying each one out of the connection's memory.
 		c.rs.userBuf = nil
 		c.rmu.Lock()
 		c.startLoop()
@@ -165,16 +169,18 @@ func (c *Conn) takeoverFired() {
 }
 
 // handOff gives the reader role of the read goroutine to the Reads
-// waiting for a message, once the read goroutine has queued m, unless m
-// is large, and reports whether it did. A waiting Read is woken: it takes
-// a queued message or, when another Read took that, the free role, so
-// that it reads frames itself.
+// waiting for a message, once the read goroutine has queued m, and
+// reports whether it did. After a large message it does so only when a
+// ReadInto waits: Read has large messages read ahead, ReadInto reads them
+// itself. A waiting Read is woken: it takes a queued message or, when
+// another Read took that, the free role, so that it reads frames itself.
 func (c *Conn) handOff(m message) bool {
-	if !c.direct || len(m.data) >= readAheadSize {
+	if !c.direct {
 		return false
 	}
+	large := len(m.data) >= readAheadSize
 	c.rmu.Lock()
-	if c.readers == 0 || c.discarding.Load() {
+	if c.readers == 0 || large && c.intoWait == 0 || c.discarding.Load() {
 		c.rmu.Unlock()
 		return false
 	}

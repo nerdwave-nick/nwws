@@ -479,3 +479,62 @@ func TestLargeMessagesReadAhead(t *testing.T) {
 		t.Fatalf("after a small message read by Read again: role %d, want free (%d)", r, roleFree)
 	}
 }
+
+// ReadInto reads large messages itself, straight into the caller's buffer:
+// unlike Read, it leaves the reader role free after one instead of giving
+// it to the read goroutine to read ahead. When the read goroutine holds
+// the role, after a large message for Read, it hands the role to a waiting
+// ReadInto with the next large message.
+func TestLargeMessagesReadIntoInCaller(t *testing.T) {
+	c, peer := startConn(t, true, testConfig())
+	large := bytes.Repeat([]byte("L"), readAheadSize)
+	buf := make([]byte, 0, 2*readAheadSize)
+
+	// readLarge has a ReadInto wait, holding the role or waiting for the
+	// read goroutine, before the peer sends a large message: masking it
+	// may take longer than the takeover delay.
+	readLarge := func(what string) {
+		t.Helper()
+		type result struct {
+			typ MessageType
+			msg []byte
+			err error
+		}
+		done := make(chan result, 1)
+		go func() {
+			typ, msg, err := readInto(t, c, buf)
+			done <- result{typ, msg, err}
+		}()
+		waitFor(t, "the ReadInto to wait", func() bool {
+			c.rmu.Lock()
+			defer c.rmu.Unlock()
+			return c.role == roleRead || c.readers == 1
+		})
+		peer.send(true, opBinary, large)
+		var r result
+		select {
+		case r = <-done:
+		case <-time.After(testTimeout):
+			t.Fatalf("%s: ReadInto did not return", what)
+		}
+		if r.err != nil || r.typ != MessageBinary || !bytes.Equal(r.msg, large) || !sameArray(r.msg, buf) {
+			t.Fatalf("%s: ReadInto = %v, %d bytes in buf %v, %v; want %v, %d bytes in buf",
+				what, r.typ, len(r.msg), sameArray(r.msg, buf), r.err, MessageBinary, len(large))
+		}
+		if role := roleOf(c); role != roleFree {
+			t.Fatalf("after %s: role %d, want free (%d)", what, role, roleFree)
+		}
+	}
+
+	readLarge("a large message read by ReadInto")
+	readLarge("another large message read by ReadInto")
+
+	// A large message for Read starts the read goroutine.
+	peer.send(true, opBinary, large)
+	mustRead(t, c, MessageBinary, large)
+	if r := roleOf(c); r != roleLoop {
+		t.Fatalf("after a large message read by Read: role %d, want the read goroutine (%d)", r, roleLoop)
+	}
+	readLarge("a large message queued for a waiting ReadInto")
+	readLarge("a large message read by ReadInto after the hand-over")
+}
